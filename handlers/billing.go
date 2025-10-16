@@ -14,32 +14,20 @@ var billingRepo = repo.NewBillingRepo()
 
 func GenerateBilling(c *gin.Context) {
 	var body struct {
-		ProductID   string         `json:"product_id"`
-		OffboardQty int            `json:"offboard_quantity"`
-		StartDate   time.Time      `json:"start_date"`
-		EndDate     time.Time      `json:"end_date"`
-		RentPerUnit float64        `json:"rent_per_unit"`
-		Expenses    []repo.Expense `json:"expenses"`
+		Items       []repo.BillingItemInput `json:"items"`
+		EndDate     time.Time               `json:"end_date"`
+		RentPerUnit float64                 `json:"rent_per_unit"`
+		Expenses    []models.Expense        `json:"expenses"`
 	}
 
-	// Bind JSON request
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error()})
 		return
 	}
 
-	// Validate dates
-	if body.EndDate.Before(body.StartDate) {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "end_date must be after start_date"})
-		return
-	}
-
-	// Call repo to generate billing
 	bill, err := billingRepo.GenerateBilling(
 		context.Background(),
-		body.ProductID,
-		body.OffboardQty,
-		body.StartDate,
+		body.Items,
 		body.EndDate,
 		body.RentPerUnit,
 		body.Expenses,

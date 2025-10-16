@@ -81,15 +81,3 @@ func GetBatchesByProductIDHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": batches})
 }
-
-// Optional: register routes
-func RegisterBatchRoutes(r *gin.Engine) {
-	b := r.Group("/batches")
-	{
-		b.POST("/", CreateBatchHandler)
-		b.POST("/offboard", OffboardProductHandler)
-		b.GET("/", GetAllBatchesHandler)
-		b.GET("/:id", GetBatchByIDHandler)
-		b.GET("/product/:id", GetBatchesByProductIDHandler)
-	}
-}

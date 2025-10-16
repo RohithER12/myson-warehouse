@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"fmt"
+	"log"
 	dbconn "warehouse/config/dbConn"
 	"warehouse/models"
 
@@ -28,123 +29,112 @@ func NewBillingRepo() *BillingRepo {
 	}
 }
 
-// Expense represents a single extra cost
-type Expense struct {
-	Type   string  `bson:"type" json:"type"` // e.g., "transport", "handling"
-	Amount float64 `bson:"amount" json:"amount"`
-	Notes  string  `bson:"notes" json:"notes"`
+type BillingItemInput struct {
+	ProductID    string  `json:"product_id"`
+	BatchID      string  `json:"batch_id"`
+	OffboardQty  int     `json:"offboard_quantity"`
+	SellingPrice float64 `json:"selling_price"`
 }
 
-// GenerateBilling creates a billing record for offboarding a product quantity
 func (r *BillingRepo) GenerateBilling(
 	ctx context.Context,
-	productID string,
-	offboardQty int,
-	startDate, endDate time.Time,
+	items []BillingItemInput,
+	endDate time.Time,
 	rentPerUnit float64,
-	expenses []Expense,
+	expenses []models.Expense,
 ) (*models.Billing, error) {
 
-	// 1️⃣ Fetch product to get StorageArea
 	productRepo := NewProductRepo()
-	product, err := productRepo.GetByID(ctx, productID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 2️⃣ Fetch batches for the product (FIFO)
 	stockRepo := NewStockRepo()
-	batches, err := stockRepo.GetBatchesByProductID(ctx, productID)
-	if err != nil {
-		return nil, err
-	}
 
-	remaining := offboardQty
-	var storageCost, totalBuying, totalSelling float64
-	usedBatches := []models.BillingBatch{}
+	var billingItems []models.BillingItem
+	var totalStorage, totalBuying, totalSelling float64
 
-	// Compute duration once
-	duration := endDate.Sub(startDate).Hours() / 24
-	if duration < 1 {
-		duration = 1
-	}
-
-	for _, batch := range batches {
-		if remaining <= 0 {
-			break
+	for _, item := range items {
+		// Fetch batch
+		batch, err := stockRepo.GetBatchByID(ctx, item.BatchID)
+		if err != nil {
+			return nil, fmt.Errorf("batch %s not found: %v", item.BatchID, err)
 		}
 
+		// Find product entry inside batch
 		var batchProduct *models.BatchProductEntry
 		for i := range batch.Products {
-			if batch.Products[i].ProductID.Hex() == productID {
+			if batch.Products[i].ProductID.Hex() == item.ProductID {
 				batchProduct = &batch.Products[i]
 				break
 			}
 		}
-		if batchProduct == nil || batchProduct.Quantity == 0 {
-			continue
+		if batchProduct == nil {
+			return nil, fmt.Errorf("product %s not found in batch %s", item.ProductID, item.BatchID)
+		}
+		if batchProduct.Quantity < item.OffboardQty {
+			return nil, fmt.Errorf("not enough quantity in batch %s for product %s", item.BatchID, item.ProductID)
 		}
 
-		deduct := batchProduct.Quantity
-		if deduct > remaining {
-			deduct = remaining
+		// Fetch product for storage area
+		product, err := productRepo.GetByID(ctx, item.ProductID)
+		if err != nil {
+			return nil, fmt.Errorf("product fetch failed: %v", err)
 		}
 
-		// Storage cost = rentPerUnit * StorageArea (from product) * quantity * duration
-		storageCost += rentPerUnit * product.StorageArea * float64(deduct)
+		// Duration from batch StoredAt to billing end date
+		durationDays := endDate.Sub(batch.StoredAt).Hours() / 24
+		if durationDays < 1 {
+			durationDays = 1
+		}
 
-		totalBuying += batchProduct.BillingPrice * float64(deduct)
-		totalSelling += batchProduct.SellingPrice * float64(deduct)
+		storageCost := rentPerUnit * product.StorageArea * float64(item.OffboardQty) * durationDays
+		totalBuyingPrice := batchProduct.BillingPrice * float64(item.OffboardQty)
+		totalSellingPrice := item.SellingPrice * float64(item.OffboardQty)
 
-		usedBatches = append(usedBatches, models.BillingBatch{
-			BatchID:  batch.ID.Hex(),
-			Quantity: deduct,
+		batchProduct.Quantity -= item.OffboardQty
+		status := "partially_offboarded"
+		if batchProduct.Quantity == 0 {
+			status = "fully_offboarded"
+		}
+		batch.Status = status
+
+		if err := stockRepo.UpdateBatch(ctx, batch); err != nil {
+			log.Println("⚠️ Batch update failed:", err)
+		}
+
+		billingItems = append(billingItems, models.BillingItem{
+			ProductID:    item.ProductID,
+			BatchID:      item.BatchID,
+			OffboardQty:  item.OffboardQty,
+			StoredAt:     batch.StoredAt,
+			DurationDays: durationDays,
+			StorageCost:  storageCost,
+			BuyingPrice:  batchProduct.BillingPrice,
+			SellingPrice: item.SellingPrice,
+			TotalSelling: totalSellingPrice,
+			BatchStatus:  status,
 		})
 
-		// Deduct quantity from batch
-		batchProduct.Quantity -= deduct
-		if batchProduct.Quantity == 0 {
-			batch.Status = "fully_offboarded"
-		} else {
-			batch.Status = "partially_offboarded"
-		}
-
-		remaining -= deduct
-
-		// Update batch in DB
-		if err := stockRepo.UpdateBatch(ctx, &batch); err != nil {
-			return nil, err
-		}
+		totalStorage += storageCost
+		totalBuying += totalBuyingPrice
+		totalSelling += totalSellingPrice
 	}
 
-	if remaining > 0 {
-		return nil, fmt.Errorf("not enough quantity in batches for product %s", productID)
-	}
-
-	// 3️⃣ Sum other expenses
 	var otherExpenses float64
 	for _, e := range expenses {
 		otherExpenses += e.Amount
 	}
 
 	billing := &models.Billing{
-		ID:               primitive.NewObjectID(),
-		ProductID:        productID,
-		OffboardQuantity: offboardQty,
-		StartDate:        startDate,
-		EndDate:          endDate,
-		StorageDuration:  duration,
-		RentPerUnit:      rentPerUnit,
-		StorageCost:      storageCost,
-		OtherExpenses:    otherExpenses,
-		TotalCost:        storageCost + totalBuying + otherExpenses,
-		TotalSelling:     totalSelling,
-		Margin:           totalSelling - (storageCost + totalBuying + otherExpenses),
-		BatchesUsed:      usedBatches,
-		CreatedAt:        time.Now(),
+		ID:            primitive.NewObjectID(),
+		Items:         billingItems,
+		EndDate:       endDate,
+		RentPerUnit:   rentPerUnit,
+		TotalStorage:  totalStorage,
+		TotalBuying:   totalBuying,
+		TotalSelling:  totalSelling,
+		OtherExpenses: otherExpenses,
+		Margin:        totalSelling - (totalStorage + totalBuying + otherExpenses),
+		CreatedAt:     time.Now(),
 	}
 
-	// Insert billing record
 	if _, err := r.col.InsertOne(ctx, billing); err != nil {
 		return nil, err
 	}
@@ -184,26 +174,4 @@ func (r *BillingRepo) GetAll(ctx context.Context) ([]models.Billing, error) {
 		bills = append(bills, b)
 	}
 	return bills, nil
-}
-
-// Helper functions
-func sumExpenseByType(exp []Expense, typ string) float64 {
-	var total float64
-	for _, e := range exp {
-		if typ == "" || e.Type == typ {
-			total += e.Amount
-		}
-	}
-	return total
-}
-
-// excludes returns expenses excluding a given type
-func excludes(exp []Expense, typ string) []Expense {
-	var result []Expense
-	for _, e := range exp {
-		if e.Type != typ {
-			result = append(result, e)
-		}
-	}
-	return result
 }
