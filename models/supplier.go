@@ -6,12 +6,10 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type Product struct {
+type Supplier struct {
 	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	Name        string             `bson:"name" json:"name"`
-	SupplyerId  string             `bson:"supplyer_id" json:"supplyer_id"`
-	Category    string             `bson:"category" json:"category"`
-	StorageArea float64            `bson:"storage_area" json:"storage_area"`
+	Description string             `bson:"description" json:"description"`
 	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
 }

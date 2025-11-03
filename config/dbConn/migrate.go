@@ -21,6 +21,7 @@ func Migrate(dbName string) {
 		"products",
 		"billings",
 		"analytics",
+		"batches",
 	}
 
 	for _, name := range collections {

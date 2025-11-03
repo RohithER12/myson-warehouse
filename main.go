@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"warehouse/config"
 	dbconn "warehouse/config/dbConn"
@@ -12,17 +13,17 @@ import (
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	log.Println("DBConnectionString :", config.Cfg.DBConnectionString)
+	// log.Println("DBConnectionString :", config.Cfg.DBConnectionString)
 	dbconn.InitMongoClient()
 
 	dbconn.Migrate(config.Cfg.DBName)
 
 	log.Println("🚀 Migration done, DB ready.")
-	defer dbconn.GetClient().Disconnect(nil)
+	defer dbconn.GetClient().Disconnect(context.TODO())
 
 	r := gin.Default()
 	setupRoutes(r)
-	r.Run()
+	r.Run(":" + config.Cfg.Port)
 }
 
 func setupRoutes(r *gin.Engine) {
@@ -32,4 +33,6 @@ func setupRoutes(r *gin.Engine) {
 	routes.BillingRoutes(r)
 	routes.AnalyticsRoutes(r)
 	routes.RegisterBatchRoutes(r)
+	routes.SupplierRoutes(r)
+	routes.RegisterStockRoutes(r)
 }

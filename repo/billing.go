@@ -14,7 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-const billingCollection = "billings"
+
 
 type BillingRepo struct {
 	col         *mongo.Collection

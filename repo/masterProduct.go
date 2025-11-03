@@ -13,7 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-const productCollection = "products"
+
 
 type ProductRepo struct {
 	col *mongo.Collection
@@ -82,7 +82,7 @@ func (r *ProductRepo) Update(ctx context.Context, id string, update bson.M) erro
 		return err
 	}
 
-	update["last_updated"] = time.Now()
+	update["updated_at"] = time.Now()
 	_, err = r.col.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": update})
 	return err
 }
