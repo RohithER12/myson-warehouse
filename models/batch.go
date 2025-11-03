@@ -21,3 +21,6 @@ type BatchProductEntry struct {
 	Quantity       int                `bson:"quantity" json:"quantity"`
 	LastOffboarded *time.Time         `bson:"last_offboarded,omitempty" json:"last_offboarded,omitempty"`
 }
+
+
+

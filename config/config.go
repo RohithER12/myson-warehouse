@@ -12,6 +12,7 @@ type Config struct {
 	DBConnectionString string `mapstructure:"DB_CONNECTION_STRING"`
 	DBName             string `mapstructure:"DB_NAME"`
 	JWTSecret          string `mapstructure:"JWT_SECRET"`
+	Port               string `mapstructure:"PORT"`
 }
 
 var (

@@ -14,6 +14,5 @@ func ProductRoutes(r *gin.Engine) {
 		p.GET("/:id", handlers.GetProduct)
 		p.PUT("/:id", handlers.UpdateProduct)
 		p.DELETE("/:id", handlers.DeleteProduct)
-		p.POST("/:id/offboard", handlers.OffboardProduct)
 	}
 }

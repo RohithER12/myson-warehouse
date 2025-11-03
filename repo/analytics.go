@@ -14,16 +14,18 @@ import (
 )
 
 type AnalyticsRepo struct {
-	billingCol *mongo.Collection
-	batchCol   *mongo.Collection
-	productCol *mongo.Collection
+	billingCol  *mongo.Collection
+	batchCol    *mongo.Collection
+	productCol  *mongo.Collection
+	supplierCol *mongo.Collection
 }
 
 func NewAnalyticsRepo() *AnalyticsRepo {
 	return &AnalyticsRepo{
-		billingCol: dbconn.GetCollection("myson_warehouse", "billings"),
-		batchCol:   dbconn.GetCollection("myson_warehouse", "batches"),
-		productCol: dbconn.GetCollection("myson_warehouse", "products"),
+		billingCol:  dbconn.GetCollection("myson_warehouse", billingCollection),
+		batchCol:    dbconn.GetCollection("myson_warehouse", BatchCollection),
+		productCol:  dbconn.GetCollection("myson_warehouse", productCollection),
+		supplierCol: dbconn.GetCollection("myson_warehouse", SupplierCollection),
 	}
 }
 

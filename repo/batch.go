@@ -14,16 +14,16 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-const BatchCollection = "batches"
-
 type StockRepo struct {
-	col *mongo.Collection
+	col        *mongo.Collection
+	productCol *mongo.Collection
 }
 
 // NewStockRepo initializes the repository
 func NewStockRepo() *StockRepo {
 	return &StockRepo{
-		col: dbconn.GetCollection("myson_warehouse", productCollection),
+		col:        dbconn.GetCollection("myson_warehouse", BatchCollection),
+		productCol: dbconn.GetCollection("myson_warehouse", productCollection),
 	}
 }
 

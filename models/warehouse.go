@@ -18,7 +18,7 @@ type Warehouse struct {
 }
 
 type RentRate struct {
-	PerHour float64 `bson:"per_hour" json:"per_hour"`
-	PerDay  float64 `bson:"per_day" json:"per_day"`
-	PerWeek float64 `bson:"per_week" json:"per_week"`
+	RatePerSqft  float64 `bson:"rate_per_sqft" json:"rate_per_sqft"`
+	Currency     string `bson:"currency" json:"currency"`
+	BillingCycle string `bson:"billing_cycle" json:"billing_cycle"`
 }

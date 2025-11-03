@@ -12,7 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-const warehouseCollection = "warehouses"
+
 
 type WarehouseRepo struct {
 	col *mongo.Collection

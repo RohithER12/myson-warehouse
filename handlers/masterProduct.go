@@ -72,28 +72,4 @@ func DeleteProduct(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Product deleted"})
 }
 
-func OffboardProduct(c *gin.Context) {
-	productID := c.Param("id")
 
-	var body struct {
-		Quantity int `json:"quantity"`
-	}
-
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error()})
-		return
-	}
-
-	if body.Quantity <= 0 {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "Quantity must be greater than 0"})
-		return
-	}
-
-	// Offboard quantity from batches
-	if err := stockRepo.Offboard(context.Background(), productID, body.Quantity); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Product offboarded successfully"})
-}

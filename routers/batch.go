@@ -15,5 +15,6 @@ func RegisterBatchRoutes(r *gin.Engine) {
 		b.GET("/", handlers.GetAllBatchesHandler)
 		b.GET("/:id", handlers.GetBatchByIDHandler)
 		b.GET("/product/:id", handlers.GetBatchesByProductIDHandler)
+		
 	}
 }
