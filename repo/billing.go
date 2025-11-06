@@ -36,7 +36,7 @@ func (r *BillingRepo) CreateBillingWithBatchId(ctx context.Context, billingInput
 			}
 
 			if entry.StockQuantity < item.OffboardQty {
-				return fmt.Errorf("insufficient stock for product ID %d in batch %d", item.ProductID, item.BatchID)
+				return fmt.Errorf("insufficient stock for product ID %v in batch %v", item.ProductID, item.BatchID)
 			}
 
 			// Fetch product
@@ -48,7 +48,7 @@ func (r *BillingRepo) CreateBillingWithBatchId(ctx context.Context, billingInput
 			// Fetch batch + warehouse + rent config
 			var batch models.Batch
 			if err := tx.Preload("Warehouse.RentConfig").First(&batch, item.BatchID).Error; err != nil {
-				return fmt.Errorf("batch not found for ID %d", item.BatchID)
+				return fmt.Errorf("batch not found for ID %v", item.BatchID)
 			}
 
 			rate := batch.Warehouse.RentConfig.RatePerSqft
@@ -169,11 +169,11 @@ func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingIn
 				Where("batch_product_entries.product_id = ? AND batch_product_entries.stock_quantity > 0", item.ProductID).
 				Order("batches.created_at ASC").
 				Find(&batchEntries).Error; err != nil {
-				return fmt.Errorf("no available batches found for product ID %d", item.ProductID)
+				return fmt.Errorf("no available batches found for product ID %v", item.ProductID)
 			}
 
 			if len(batchEntries) == 0 {
-				return fmt.Errorf("no available stock for product ID %d", item.ProductID)
+				return fmt.Errorf("no available stock for product ID %v", item.ProductID)
 			}
 
 			// Process FIFO batches
@@ -263,7 +263,7 @@ func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingIn
 
 			// If still not enough stock, rollback
 			if remainingQty > 0 {
-				return fmt.Errorf("not enough stock to offboard %d units for product %d", item.OffboardQty, item.ProductID)
+				return fmt.Errorf("not enough stock to offboard %d units for product %v", item.OffboardQty, item.ProductID)
 			}
 		}
 
