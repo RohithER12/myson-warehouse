@@ -9,4 +9,5 @@ import (
 func RegisterStockRoutes(r *gin.Engine) {
 	s := r.Group("/stock")
 	s.GET("/", handlers.GetProductStockWithRentHandler)
+	s.GET("/products", handlers.GetAllProductStockHandler)
 }

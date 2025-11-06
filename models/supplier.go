@@ -3,13 +3,14 @@ package models
 import (
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"gorm.io/gorm"
 )
 
 type Supplier struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name        string             `bson:"name" json:"name"`
-	Description string             `bson:"description" json:"description"`
-	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
+	ID          uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name        string         `gorm:"type:varchar(255);not null" json:"name"`
+	Description string         `gorm:"type:text" json:"description"`
+	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
 }

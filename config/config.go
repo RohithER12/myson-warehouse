@@ -10,9 +10,15 @@ import (
 
 type Config struct {
 	DBConnectionString string `mapstructure:"DB_CONNECTION_STRING"`
-	DBName             string `mapstructure:"DB_NAME"`
 	JWTSecret          string `mapstructure:"JWT_SECRET"`
 	Port               string `mapstructure:"PORT"`
+	DbName             string `mapstructure:"DB_NAME"`
+	DbUser             string `mapstructure:"DB_USER"`
+	DbPassword         string `mapstructure:"DB_PASSWORD"`
+	DbHost             string `mapstructure:"DB_HOST"`
+	DbPort             string `mapstructure:"DB_PORT"`
+	DbSSLmode          string `mapstructure:"DB_SSLMODE"`
+	DbTimeZone         string `mapstructure:"DB_TIMEZONE"`
 }
 
 var (

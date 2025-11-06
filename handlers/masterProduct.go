@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"warehouse/models"
 	"warehouse/repo"
 
@@ -28,8 +29,13 @@ func CreateProduct(c *gin.Context) {
 }
 
 func GetProduct(c *gin.Context) {
-	id := c.Param("id")
-	p, err := productRepo.GetByID(context.Background(), id)
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
+		return
+	}
+	p, err := productRepo.GetByID(context.Background(), uint(id))
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Product not found"})
 		return
@@ -47,14 +53,19 @@ func GetAllProducts(c *gin.Context) {
 }
 
 func UpdateProduct(c *gin.Context) {
-	id := c.Param("id")
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
+		return
+	}
 	var update map[string]interface{}
 	if err := c.ShouldBindJSON(&update); err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error()})
 		return
 	}
 
-	err := productRepo.Update(context.Background(), id, update)
+	err = productRepo.Update(context.Background(), uint(id), update)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: err.Error()})
 		return
@@ -63,13 +74,16 @@ func UpdateProduct(c *gin.Context) {
 }
 
 func DeleteProduct(c *gin.Context) {
-	id := c.Param("id")
-	err := productRepo.Delete(context.Background(), id)
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
+		return
+	}
+	err = productRepo.Delete(context.Background(), uint(id))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "Product deleted"})
 }
-
-

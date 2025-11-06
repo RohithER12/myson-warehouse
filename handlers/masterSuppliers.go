@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"warehouse/models"
 	"warehouse/repo"
 
@@ -28,8 +29,13 @@ func Createsupplier(c *gin.Context) {
 }
 
 func Getsupplier(c *gin.Context) {
-	id := c.Param("id")
-	p, err := supplierRepo.GetByID(context.Background(), id)
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
+		return
+	}
+	p, err := supplierRepo.GetByID(context.Background(), uint(id))
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "supplier not found"})
 		return
@@ -47,14 +53,19 @@ func GetAllsuppliers(c *gin.Context) {
 }
 
 func Updatesupplier(c *gin.Context) {
-	id := c.Param("id")
-	var update map[string]interface{}
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
+		return
+	}
+	var update models.Supplier
 	if err := c.ShouldBindJSON(&update); err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error()})
 		return
 	}
-
-	err := supplierRepo.Update(context.Background(), id, update)
+update.ID =uint(id)
+	err = supplierRepo.Update(context.Background(), update)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: err.Error()})
 		return
@@ -63,12 +74,16 @@ func Updatesupplier(c *gin.Context) {
 }
 
 func Deletesupplier(c *gin.Context) {
-	id := c.Param("id")
-	err := supplierRepo.Delete(context.Background(), id)
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
+		return
+	}
+	err = supplierRepo.Delete(context.Background(), uint(id))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "supplier deleted"})
 }
-

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"warehouse/models"
 	"warehouse/repo"
 
@@ -28,8 +29,13 @@ func CreateWarehouse(c *gin.Context) {
 }
 
 func GetWarehouse(c *gin.Context) {
-	id := c.Param("id")
-	wh, err := warehouseRepo.GetByID(context.Background(), id)
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
+		return
+	}
+	wh, err := warehouseRepo.GetByID(context.Background(), uint(id))
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: "Warehouse not found"})
 		return
@@ -47,14 +53,19 @@ func GetAllWarehouses(c *gin.Context) {
 }
 
 func UpdateWarehouse(c *gin.Context) {
-	id := c.Param("id")
-	var update map[string]interface{}
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
+		return
+	}
+	var update models.Warehouse
 	if err := c.ShouldBindJSON(&update); err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: err.Error()})
 		return
 	}
-
-	err := warehouseRepo.Update(context.Background(), id, update)
+	update.ID = uint(id)
+	err = warehouseRepo.Update(context.Background(), &update)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: err.Error()})
 		return
@@ -63,8 +74,13 @@ func UpdateWarehouse(c *gin.Context) {
 }
 
 func DeleteWarehouse(c *gin.Context) {
-	id := c.Param("id")
-	err := warehouseRepo.Delete(context.Background(), id)
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
+		return
+	}
+	err = warehouseRepo.Delete(context.Background(), uint(id))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: err.Error()})
 		return

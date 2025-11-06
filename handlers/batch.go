@@ -4,23 +4,24 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strconv"
 	"warehouse/models"
 	"warehouse/repo"
 
 	"github.com/gin-gonic/gin"
 )
 
-var stockRepo = repo.NewStockRepo()
+var batchRepo = repo.NewBatchRepo()
 
-// CreateBatchHandler creates a new batch and adds products to stock
 func CreateBatchHandler(c *gin.Context) {
-	var batch models.Batch
-	if err := c.ShouldBindJSON(&batch); err != nil {
+	var batchData models.Batch
+	if err := c.ShouldBindJSON(&batchData); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+	batchData.Status = "active"
 
-	id, err := stockRepo.AddBatch(context.Background(), &batch)
+	id, err := batchRepo.AddBatch(context.Background(), &batchData)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
@@ -29,29 +30,10 @@ func CreateBatchHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "batch_id": id})
 }
 
-// OffboardProductHandler offboards a product quantity from batches
-func OffboardProductHandler(c *gin.Context) {
-	var req struct {
-		ProductID   string `json:"product_id"`
-		OffboardQty int    `json:"offboard_quantity"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
-		return
-	}
-
-	if err := stockRepo.Offboard(context.Background(), req.ProductID, req.OffboardQty); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Product offboarded successfully"})
-}
-
 // GetAllBatchesHandler fetches all batches
 func GetAllBatchesHandler(c *gin.Context) {
 	log.Println("got it here")
-	batches, err := stockRepo.GetAllBatches(context.Background())
+	batches, err := batchRepo.GetAllBatches(context.Background())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
@@ -62,14 +44,18 @@ func GetAllBatchesHandler(c *gin.Context) {
 
 // GetBatchByIDHandler fetches batch by ID
 func GetBatchByIDHandler(c *gin.Context) {
-	log.Println("got it here")
-	batchID := c.Param("id")
-	batch, err := stockRepo.GetBatchByID(context.Background(), batchID)
+	idStr := c.Param("id")
+	batchID, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
+		return
+	}
+	batch, err := batchRepo.GetBatchByID(context.Background(), uint(batchID))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-log.Println("got it here")
+	log.Println("got it here")
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": batch})
 }
 
@@ -77,11 +63,13 @@ log.Println("got it here")
 func GetBatchesByProductIDHandler(c *gin.Context) {
 	log.Println("got it here")
 	productID := c.Param("id")
-	batches, err := stockRepo.GetBatchesByProductID(context.Background(), productID)
+	batches, err := batchRepo.GetBatchesByProductID(context.Background(), productID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-log.Println("got it here")
+	log.Println("got it here")
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": batches})
 }
+
+// /// ///// /////

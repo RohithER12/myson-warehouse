@@ -3,15 +3,27 @@ package models
 import (
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"gorm.io/gorm"
 )
 
 type Product struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name        string             `bson:"name" json:"name"`
-	SupplyerId  string             `bson:"supplyer_id" json:"supplyer_id"`
-	Category    string             `bson:"category" json:"category"`
-	StorageArea float64            `bson:"storage_area" json:"storage_area"`
-	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
+	ID          uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name        string         `gorm:"type:varchar(255);not null" json:"name"`
+	SupplierID  uint           `gorm:"not null" json:"supplier_id"`
+	Supplier    Supplier       `gorm:"foreignKey:SupplierID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"supplier"`
+	Category    string         `gorm:"type:varchar(255)" json:"category"`
+	StorageArea float64        `gorm:"type:decimal(10,2);not null" json:"storage_area"`
+	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+}
+type ProductData struct {
+	ID          uint      ` json:"id"`
+	Name        string    ` json:"name"`
+	SupplierID  uint      ` json:"supplier_id"`
+	Supplier    Supplier  ` json:"supplier"`
+	Category    string    ` json:"category"`
+	StorageArea float64   ` json:"storage_area"`
+	CreatedAt   time.Time ` json:"created_at"`
+	UpdatedAt   time.Time ` json:"updated_at"`
 }

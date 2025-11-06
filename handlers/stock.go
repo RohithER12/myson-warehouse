@@ -25,3 +25,19 @@ func GetProductStockWithRentHandler(c *gin.Context) {
 		"data":    stock,
 	})
 }
+
+func GetAllProductStockHandler(c *gin.Context) {
+	stock, err := productStockRepo.GetAllproducts(context.Background())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    stock,
+	})
+}
