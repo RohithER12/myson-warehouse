@@ -3,37 +3,55 @@ package models
 import (
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"gorm.io/gorm"
 )
 
 type Billing struct {
-	ID            primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Items         []BillingItem      `bson:"items" json:"items"`
-	EndDate       time.Time          `bson:"end_date" json:"end_date"`
-	RentPerUnit   float64            `bson:"rent_per_unit" json:"rent_per_unit"`
-	TotalStorage  float64            `bson:"total_storage" json:"total_storage"`
-	TotalBuying   float64            `bson:"total_buying" json:"total_buying"`
-	TotalSelling  float64            `bson:"total_selling" json:"total_selling"`
-	OtherExpenses float64            `bson:"other_expenses" json:"other_expenses"`
-	Margin        float64            `bson:"margin" json:"margin"`
-	CreatedAt     time.Time          `bson:"created_at" json:"created_at"`
+	ID            uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	Items         []BillingItem  `gorm:"foreignKey:BillingID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"items"`
+	TotalRent     float64        `gorm:"type:decimal(10,2)" json:"total_rent"`
+	TotalStorage  float64        `gorm:"type:decimal(10,2)" json:"total_storage"`
+	TotalBuying   float64        `gorm:"type:decimal(10,2)" json:"total_buying"`
+	TotalSelling  float64        `gorm:"type:decimal(10,2)" json:"total_selling"`
+	OtherExpenses float64        `gorm:"type:decimal(10,2)" json:"other_expenses"`
+	Margin        float64        `gorm:"type:decimal(10,2)" json:"margin"`
+	CreatedAt     time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt     time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 type BillingItem struct {
-	ProductID    string    `bson:"product_id" json:"product_id"`
-	BatchID      string    `bson:"batch_id" json:"batch_id"`
-	OffboardQty  int       `bson:"offboard_quantity" json:"offboard_quantity"`
-	StoredAt     time.Time `bson:"stored_at" json:"stored_at"`
-	DurationDays float64   `bson:"duration_days" json:"duration_days"`
-	StorageCost  float64   `bson:"storage_cost" json:"storage_cost"`
-	BuyingPrice  float64   `bson:"buying_price" json:"buying_price"`
-	SellingPrice float64   `bson:"selling_price" json:"selling_price"`
-	TotalSelling float64   `bson:"total_selling" json:"total_selling"`
-	BatchStatus  string    `bson:"batch_status" json:"batch_status"`
+	ID           uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+	BillingID    uint           `gorm:"not null;index;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"billing_id"`
+	ProductID    uint           `gorm:"not null;index;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"product_id"`
+	BatchID      uint           `gorm:"not null;index;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"batch_id"`
+	OffboardQty  int            `gorm:"not null" json:"offboard_quantity"`
+	DurationDays float64        `gorm:"type:decimal(10,2)" json:"duration_days"`
+	StorageCost  float64        `gorm:"type:decimal(10,2)" json:"storage_cost"`
+	BuyingPrice  float64        `gorm:"type:decimal(10,2)" json:"buying_price"`
+	SellingPrice float64        `gorm:"type:decimal(10,2)" json:"selling_price"`
+	TotalSelling float64        `gorm:"type:decimal(10,2)" json:"total_selling"`
+	BatchStatus  string         `gorm:"type:varchar(50)" json:"batch_status"`
+	CreatedAt    time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt    time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 type Expense struct {
 	Type   string  `bson:"type" json:"type"`
 	Amount float64 `bson:"amount" json:"amount"`
 	Notes  string  `bson:"notes" json:"notes"`
+}
+
+//
+
+type BillingItemInput struct {
+	ProductID    string  `json:"product_id"`
+	BatchID      string  `json:"batch_id"`
+	OffboardQty  int     `json:"offboard_quantity"`
+	SellingPrice float64 `json:"selling_price"`
+}
+type BillingInput struct {
+	Items       []BillingItemInput `json:"items"`
+	Expenses    []Expense          `json:"expenses"`
 }

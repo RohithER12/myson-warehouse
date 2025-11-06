@@ -9,6 +9,9 @@ import (
 func BillingRoutes(r *gin.Engine) {
 	b := r.Group("/billing")
 	{
-		b.POST("/generate", handlers.GenerateBilling)
+		b.POST("/generate/batch", handlers.CreateBillingWithBatchId)
+		b.POST("/generate", handlers.CreateBillingWithOutBatchId)
+		b.GET("/", handlers.GetAllBillsHandler)
+		b.GET("/:id", handlers.GetBillByIDHandler)
 	}
 }

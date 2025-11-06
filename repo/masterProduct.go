@@ -2,55 +2,54 @@ package repo
 
 import (
 	"context"
+	"fmt"
 	"log"
 	dbconn "warehouse/config/dbConn"
 	"warehouse/models"
-
-	"time"
-
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-
-
 type ProductRepo struct {
-	col *mongo.Collection
 }
 
 // NewProductRepo initializes the repository
 func NewProductRepo() *ProductRepo {
-	return &ProductRepo{
-		col: dbconn.GetCollection("myson_warehouse", productCollection),
-	}
+	return &ProductRepo{}
 }
 
 // Create inserts a new product
-func (r *ProductRepo) Create(ctx context.Context, product *models.Product) (string, error) {
-	product.CreatedAt = time.Now()
-	product.UpdatedAt = time.Now()
-	product.ID = primitive.NewObjectID()
-
-	_, err := r.col.InsertOne(ctx, product)
-	if err != nil {
-		return "", err
+func (r *ProductRepo) Create(ctx context.Context, product *models.Product) (uint, error) {
+	// ✅ Validate supplier ID before inserting
+	if product.SupplierID == 0 {
+		return 0, fmt.Errorf("invalid supplier_id: must reference an existing supplier")
 	}
 
-	log.Printf("🛠 New product created: %s", product.ID.Hex())
-	return product.ID.Hex(), nil
+	// ✅ Check if supplier exists
+	var exists bool
+	if err := dbconn.DB.WithContext(ctx).
+		Model(&models.Supplier{}).
+		Select("count(*) > 0").
+		Where("id = ?", product.SupplierID).
+		Find(&exists).Error; err != nil {
+		return 0, fmt.Errorf("failed to verify supplier: %w", err)
+	}
+	if !exists {
+		return 0, fmt.Errorf("supplier with id %d not found", product.SupplierID)
+	}
+
+	// ✅ Insert product
+	if err := dbconn.DB.WithContext(ctx).Create(product).Error; err != nil {
+		return 0, err
+	}
+
+	log.Printf("🛠 New product created: %d", product.ID)
+	return product.ID, nil
 }
 
 // GetByID fetches a product by ID
-func (r *ProductRepo) GetByID(ctx context.Context, id string) (*models.Product, error) {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
-
+func (r *ProductRepo) GetByID(ctx context.Context, id uint) (*models.Product, error) {
 	var product models.Product
-	err = r.col.FindOne(ctx, bson.M{"_id": objID}).Decode(&product)
-	if err != nil {
+	if err := dbconn.DB.WithContext(ctx).Preload("Supplier").
+		Find(&product).Error; err != nil {
 		return nil, err
 	}
 	return &product, nil
@@ -58,41 +57,31 @@ func (r *ProductRepo) GetByID(ctx context.Context, id string) (*models.Product, 
 
 // GetAll fetches all products
 func (r *ProductRepo) GetAll(ctx context.Context) ([]models.Product, error) {
-	cursor, err := r.col.Find(ctx, bson.M{})
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-
 	var products []models.Product
-	for cursor.Next(ctx) {
-		var p models.Product
-		if err := cursor.Decode(&p); err != nil {
-			return nil, err
-		}
-		products = append(products, p)
+	if err := dbconn.DB.WithContext(ctx).
+		Preload("Supplier").
+		Find(&products).Error; err != nil {
+		return nil, err
 	}
 	return products, nil
 }
 
 // Update modifies a product
-func (r *ProductRepo) Update(ctx context.Context, id string, update bson.M) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
+func (r *ProductRepo) Update(ctx context.Context, id uint, update map[string]interface{}) error {
+	if err := dbconn.DB.WithContext(ctx).
+		Model(&models.Product{}).
+		Where("id = ?", id).
+		Updates(update).Error; err != nil {
 		return err
 	}
-
-	update["updated_at"] = time.Now()
-	_, err = r.col.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": update})
-	return err
+	return nil
 }
 
 // Delete removes a product
-func (r *ProductRepo) Delete(ctx context.Context, id string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
+func (r *ProductRepo) Delete(ctx context.Context, id uint) error {
+	if err := dbconn.DB.WithContext(ctx).
+		Delete(&models.Product{}, id).Error; err != nil {
 		return err
 	}
-	_, err = r.col.DeleteOne(ctx, bson.M{"_id": objID})
-	return err
+	return nil
 }

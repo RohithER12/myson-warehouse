@@ -2,173 +2,135 @@ package repo
 
 import (
 	"context"
+	"log"
 	"strings"
 	"time"
 	dbconn "warehouse/config/dbConn"
 	"warehouse/models"
-
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 type ProductStockRepo struct {
-	col          *mongo.Collection
-	productCol   *mongo.Collection
-	warehouseCol *mongo.Collection
 }
 
 // NewStockRepo initializes the repository
 func NewProductStockRepo() *ProductStockRepo {
-	return &ProductStockRepo{
-		col:          dbconn.GetCollection("myson_warehouse", BatchCollection),
-		productCol:   dbconn.GetCollection("myson_warehouse", productCollection),
-		warehouseCol: dbconn.GetCollection("myson_warehouse", warehouseCollection),
-	}
+	return &ProductStockRepo{}
 }
 
-func (r *ProductStockRepo) GetProductStockWithRent(ctx context.Context) ([]models.ProductStock, error) {
-	// Step 1: Get all batches with product + warehouse info
-	pipeline := mongo.Pipeline{
-		{{Key: "$unwind", Value: "$products"}},
-		{{Key: "$project", Value: bson.M{
-			"warehouse_id": "$warehouse_id",
-			"product_id":   "$products.product_id",
-			"quantity":     "$products.quantity",
-			"stored_at":    "$stored_at",
-		}}},
-	}
+func (r *ProductStockRepo) GetProductStockWithRent(ctx context.Context) ([]map[string]any, error) {
+	var entries []models.ProductStockView
 
-	cursor, err := r.col.Aggregate(ctx, pipeline)
+	err := dbconn.DB.WithContext(ctx).
+		Table("batches AS b").
+		Select(`
+			b.id AS batch_id,
+			b.warehouse_id,
+			w.name AS warehouse_name,
+			p.id AS product_id,
+			p.name AS product_name,
+			p.category,
+			s.name AS supplier_name,
+			p.storage_area,
+			be.quantity,
+			be.stock_quantity,
+			be.billing_price,
+			b.created_at,
+			be.last_updated,
+			rr.rate_per_sqft,
+			rr.currency,
+			rr.billing_cycle
+		`).
+		Joins("JOIN batch_product_entries AS be ON b.id = be.batch_id").
+		Joins("JOIN products AS p ON be.product_id = p.id").
+		Joins("JOIN suppliers AS s ON p.supplier_id = s.id").
+		Joins("JOIN warehouses AS w ON b.warehouse_id = w.id").
+		Joins("JOIN rent_rates AS rr ON w.rent_config_id = rr.id").
+		// Where("b.deleted_at IS NULL AND be.deleted_at IS NULL").
+		Find(&entries).Error
+
 	if err != nil {
+		log.Printf("❌ Query error: %v\n", err)
 		return nil, err
 	}
-	defer cursor.Close(ctx)
-
-	var items []models.BatchProduct
-	if err := cursor.All(ctx, &items); err != nil {
-		return nil, err
-	}
-
-	// Step 2: Collect unique product and warehouse IDs
-	productIDs := make(map[primitive.ObjectID]struct{})
-	warehouseIDs := make(map[primitive.ObjectID]struct{})
-
-	for _, item := range items {
-		productIDs[item.ProductID] = struct{}{}
-		if wid, err := primitive.ObjectIDFromHex(item.WarehouseID); err == nil {
-			warehouseIDs[wid] = struct{}{}
-		}
-	}
-
-	var pidList, widList []primitive.ObjectID
-	for id := range productIDs {
-		pidList = append(pidList, id)
-	}
-	for id := range warehouseIDs {
-		widList = append(widList, id)
-	}
-
-	// Step 3: Fetch products and warehouses
-	productCursor, err := r.productCol.Find(ctx, bson.M{"_id": bson.M{"$in": pidList}})
-	if err != nil {
-		return nil, err
-	}
-	defer productCursor.Close(ctx)
-
-	warehouseCursor, err := r.warehouseCol.Find(ctx, bson.M{"_id": bson.M{"$in": widList}})
-	if err != nil {
-		return nil, err
-	}
-	defer warehouseCursor.Close(ctx)
-
-	productMap := make(map[primitive.ObjectID]models.Product)
-	for productCursor.Next(ctx) {
-		var p models.Product
-		if err := productCursor.Decode(&p); err != nil {
-			return nil, err
-		}
-		productMap[p.ID] = p
-	}
-
-	warehouseMap := make(map[primitive.ObjectID]models.Warehouse)
-	for warehouseCursor.Next(ctx) {
-		var w models.Warehouse
-		if err := warehouseCursor.Decode(&w); err != nil {
-			return nil, err
-		}
-		warehouseMap[w.ID] = w
-	}
-
-	// Step 4: Aggregate total quantity, space, and rent
-	type agg struct {
-		Quantity int
-		Space    float64
-		Rent     float64
-		Currency string
-	}
-
-	aggregated := make(map[primitive.ObjectID]agg)
 
 	now := time.Now()
+	var results []map[string]interface{}
 
-	for _, item := range items {
-		product := productMap[item.ProductID]
-		wid, err := primitive.ObjectIDFromHex(item.WarehouseID)
-		if err != nil {
-			continue
-		}
-
-		warehouse, exists := warehouseMap[wid]
-		if !exists {
-			continue
-		}
-
-		rentPerSqft := warehouse.RentConfig.RatePerSqft
-		storageArea := product.StorageArea
-		currency := warehouse.RentConfig.Currency
-		billingCycle := strings.ToLower(warehouse.RentConfig.BillingCycle)
-
-		// Calculate duration in days
-		daysStored := now.Sub(item.StoredAt).Hours() / 24
+	for _, e := range entries {
+		daysStored := now.Sub(e.CreatedAt).Hours() / 24
 		if daysStored < 1 {
-			daysStored = 1 // minimum 1 day rent
+			daysStored = 1
 		}
 
 		var rent float64
-		switch billingCycle {
+		switch strings.ToLower(e.BillingCycle) {
 		case "daily":
-			rent = daysStored * storageArea * rentPerSqft * float64(item.Quantity)
+			rent = daysStored * e.StorageArea * e.RatePerSqft * float64(e.StockQuantity)
 		case "monthly":
-			months := daysStored / 30
-			rent = months * storageArea * rentPerSqft * float64(item.Quantity)
+			rent = (daysStored / 30) * e.StorageArea * e.RatePerSqft * float64(e.StockQuantity)
 		default:
-			// default assume monthly
-			months := daysStored / 30
-			rent = months * storageArea * rentPerSqft * float64(item.Quantity)
+			rent = (daysStored / 30) * e.StorageArea * e.RatePerSqft * float64(e.StockQuantity)
 		}
 
-		prev := aggregated[item.ProductID]
-		prev.Quantity += item.Quantity
-		prev.Space += storageArea * float64(item.Quantity)
-		prev.Rent += rent
-		prev.Currency = currency
-		aggregated[item.ProductID] = prev
-	}
+		status := "out_of_stock"
+		if e.StockQuantity > 0 {
+			status = "in_stock"
+		}
 
-	// Step 5: Build final result
-	var result []models.ProductStock
-	for pid, data := range aggregated {
-		p := productMap[pid]
-		result = append(result, models.ProductStock{
-			ProductID:     pid,
-			ProductName:   p.Name,
-			TotalQuantity: data.Quantity,
-			TotalSpace:    data.Space,
-			TotalRent:     data.Rent,
-			Currency:      data.Currency,
+		results = append(results, map[string]any{
+			"batch_id":       e.BatchID,
+			"product_id":     e.ProductID,
+			"product_name":   e.ProductName,
+			"category":       e.Category,
+			"supplier_name":  e.SupplierName,
+			"warehouse_id":   e.WarehouseID,
+			"warehouse_name": e.WarehouseName,
+			"billing_price":  e.BillingPrice,
+			"batch_quantity": e.Quantity,
+			"stock_quantity": e.StockQuantity,
+			"stored_at":      e.CreatedAt,
+			"last_updated":   e.LastUpdated,
+			"total_space":    e.StorageArea * float64(e.StockQuantity),
+			"total_rent":     rent,
+			"currency":       e.Currency,
+			"status":         status,
 		})
 	}
 
-	return result, nil
+	log.Printf("🏁 Final Result count: %d entries", len(results))
+	return results, nil
+}
+
+// GetAllproducts aggregates product stock and related details
+func (r *ProductStockRepo) GetAllproducts(ctx context.Context) ([]models.BasicProductStockView, error) {
+	var results []models.BasicProductStockView
+	log.Println("herer")
+	err := dbconn.DB.WithContext(ctx).
+		Table("batch_product_entries AS bpe").
+		Select(`
+			b.warehouse_id,
+			w.name AS warehouse_name,
+			p.id AS product_id,
+			p.name AS product_name,
+			p.category,
+			AVG(p.storage_area) AS average_storage_area,
+			SUM(bpe.stock_quantity) AS stock_quantity,
+			AVG(bpe.billing_price) AS average_billing_price,
+			AVG(rr.rate_per_sqft) AS average_rate_per_sqft,
+			rr.currency,
+			rr.billing_cycle
+		`).
+		Joins("JOIN batches b ON b.id = bpe.batch_id").
+		Joins("JOIN products p ON p.id = bpe.product_id").
+		Joins("JOIN warehouses w ON w.id = b.warehouse_id").
+		Joins("JOIN rent_rates rr ON rr.id = w.rent_config_id").
+		Group("b.warehouse_id, w.name, p.id, p.name, p.category, p.storage_area, rr.currency, rr.billing_cycle").
+		Order("w.name, p.name").
+		Scan(&results).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }

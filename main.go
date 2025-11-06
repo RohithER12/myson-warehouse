@@ -1,38 +1,39 @@
 package main
 
 import (
-	"context"
 	"log"
+	"time"
 	"warehouse/config"
 	dbconn "warehouse/config/dbConn"
 	routes "warehouse/routers"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	// log.Println("DBConnectionString :", config.Cfg.DBConnectionString)
-	dbconn.InitMongoClient()
+	// Connect DB
+	dbconn.ConnectDB()
 
-	dbconn.Migrate(config.Cfg.DBName)
+	// Server
+	route := gin.Default()
 
-	log.Println("🚀 Migration done, DB ready.")
-	defer dbconn.GetClient().Disconnect(context.TODO())
+	// ✅ Setup CORS
+	route.Use(cors.New(cors.Config{
+		AllowOriginFunc: func(origin string) bool {
+			return true // ✅ allow all origins
+		}, // change to your frontend URLs
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 
-	r := gin.Default()
-	setupRoutes(r)
-	r.Run(":" + config.Cfg.Port)
-}
+	routes.SetupRoutes(route)
 
-func setupRoutes(r *gin.Engine) {
-	// Register all resource routes
-	routes.WarehouseRoutes(r)
-	routes.ProductRoutes(r)
-	routes.BillingRoutes(r)
-	routes.AnalyticsRoutes(r)
-	routes.RegisterBatchRoutes(r)
-	routes.SupplierRoutes(r)
-	routes.RegisterStockRoutes(r)
+	log.Printf("🚀 Server running on port %s\n", config.Cfg.Port)
+	route.Run(":" + config.Cfg.Port)
 }

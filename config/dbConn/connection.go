@@ -1,62 +1,92 @@
 package dbconn
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"sync"
-	"time"
 	"warehouse/config"
+	"warehouse/models"
 
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
-var (
-	clientInstance *mongo.Client
-	once           sync.Once
-)
+// postgres instance
+var DB *gorm.DB
 
-// InitMongoClient initializes and returns a singleton MongoDB client.
-func InitMongoClient() *mongo.Client {
+func ConnectDB() *gorm.DB {
 	config.LoadConfig()
-	once.Do(func() {
-		serverAPI := options.ServerAPI(options.ServerAPIVersion1)
-		opts := options.Client().ApplyURI(config.Cfg.DBConnectionString).SetServerAPIOptions(serverAPI)
+	dbName := config.Cfg.DbName
 
-		c, err := mongo.Connect(opts)
-		if err != nil {
-			log.Fatalf("❌ Failed to connect to MongoDB: %v", err)
+	// Step 1️⃣: Connect to default postgres DB
+	defaultDSN := fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=postgres port=%s sslmode=%s TimeZone=%s",
+		config.Cfg.DbHost,
+		config.Cfg.DbUser,
+		config.Cfg.DbPassword,
+		config.Cfg.DbPort,
+		config.Cfg.DbSSLmode,
+		config.Cfg.DbTimeZone,
+	)
+
+	defaultDB, err := gorm.Open(postgres.Open(defaultDSN), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("❌ Failed to connect to PostgreSQL server: %v", err)
+	}
+
+	// Step 2️⃣: Check if target DB exists
+	var exists bool
+	checkQuery := fmt.Sprintf("SELECT EXISTS (SELECT datname FROM pg_database WHERE datname = '%s')", dbName)
+	if err := defaultDB.Raw(checkQuery).Scan(&exists).Error; err != nil {
+		log.Fatalf("❌ Failed to check database existence: %v", err)
+	}
+
+	// Step 3️⃣: Create DB if missing
+	if !exists {
+		createQuery := fmt.Sprintf("CREATE DATABASE %s;", dbName)
+		log.Printf("📦 Creating new database: %s", dbName)
+		if err := defaultDB.Exec(createQuery).Error; err != nil {
+			log.Fatalf("❌ Failed to create database: %v", err)
 		}
+	} else {
+		log.Printf("✅ Database '%s' already exists", dbName)
+	}
 
-		// Ping the server
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := c.Ping(ctx, readpref.Primary()); err != nil {
-			log.Fatalf("❌ Failed to ping MongoDB: %v", err)
-		}
+	// Step 4️⃣: Connect to actual target DB
+	targetDSN := fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=%s",
+		config.Cfg.DbHost,
+		config.Cfg.DbUser,
+		config.Cfg.DbPassword,
+		dbName,
+		config.Cfg.DbPort,
+		config.Cfg.DbSSLmode,
+		config.Cfg.DbTimeZone,
+	)
 
-		fmt.Println("✅ Connected to MongoDB Atlas")
-		clientInstance = c
+	db, err := gorm.Open(postgres.Open(targetDSN), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Warn),
 	})
-	return clientInstance
-}
-
-// GetCollection returns a collection from the connected MongoDB client.
-func GetCollection(dbName, collectionName string) *mongo.Collection {
-	client := InitMongoClient()
-	if client == nil {
-		log.Fatal("❌ MongoDB client is not initialized")
+	if err != nil {
+		log.Fatalf("❌ Failed to connect to target database: %v", err)
 	}
-	return client.Database(dbName).Collection(collectionName)
-}
 
-// GetClient returns the MongoDB client instance
-func GetClient() *mongo.Client {
-	if clientInstance == nil {
-		// Ensure client is initialized
-		clientInstance = InitMongoClient()
+	// Step 5️⃣: Run migrations
+	err = db.AutoMigrate(
+		&models.Batch{},
+		&models.BatchProductEntry{},
+		&models.Warehouse{},
+		&models.RentRate{},
+		&models.Product{},
+		&models.Supplier{},
+		&models.Billing{},
+		&models.BillingItem{},
+	)
+	if err != nil {
+		log.Fatalf("❌ Auto migration failed: %v", err)
 	}
-	return clientInstance
+
+	log.Println("✅ Auto migration completed successfully")
+	DB = db
+	return DB
 }

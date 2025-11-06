@@ -2,165 +2,150 @@ package repo
 
 import (
 	"context"
-	"log"
-	"math"
 	"time"
 	dbconn "warehouse/config/dbConn"
 	"warehouse/models"
-
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 type AnalyticsRepo struct {
-	billingCol  *mongo.Collection
-	batchCol    *mongo.Collection
-	productCol  *mongo.Collection
-	supplierCol *mongo.Collection
 }
 
 func NewAnalyticsRepo() *AnalyticsRepo {
-	return &AnalyticsRepo{
-		billingCol:  dbconn.GetCollection("myson_warehouse", billingCollection),
-		batchCol:    dbconn.GetCollection("myson_warehouse", BatchCollection),
-		productCol:  dbconn.GetCollection("myson_warehouse", productCollection),
-		supplierCol: dbconn.GetCollection("myson_warehouse", SupplierCollection),
-	}
+	return &AnalyticsRepo{}
 }
 
-func (r *AnalyticsRepo) GenerateProductAnalytics(ctx context.Context, productID primitive.ObjectID) (*models.ProductAnalytics, error) {
-	// 1️⃣ Fetch product info
-	var product models.Product
-	if err := r.productCol.FindOne(ctx, bson.M{"_id": productID}).Decode(&product); err != nil {
-		return nil, err
+// 🔍 Get batch by ID
+func (r *AnalyticsRepo) GetAnalytics(ctx context.Context, duration string) (*models.ProductAnalytics, error) {
+
+	db := dbconn.DB.WithContext(ctx)
+
+	analytics := &models.ProductAnalytics{}
+
+	// Apply duration filter
+	var startDate time.Time
+	now := time.Now()
+	switch duration {
+	case "lastweek":
+		startDate = now.AddDate(0, 0, -7)
+	case "lastmonth":
+		startDate = now.AddDate(0, -1, 0)
+	case "lastyear":
+		startDate = now.AddDate(-1, 0, 0)
+	default:
+		startDate = now.AddDate(0, -1, 0) // default last month
 	}
 
-	// 2️⃣ Fetch all batches containing this product
-	cursor, err := r.batchCol.Find(ctx, bson.M{"products.product_id": productID})
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
+	// --- Step 1: Fetch Data ---
+	var batches []models.BatchProductEntry
+	var billings []models.Billing
+	var billingItems []models.BillingItem
+	var warehouses []models.Warehouse
 
-	var totalStored int
-	for cursor.Next(ctx) {
-		var batch models.Batch
-		if err := cursor.Decode(&batch); err != nil {
-			log.Println("⚠️ Failed to decode batch:", err)
-			continue
+	db.Preload("Product").Find(&batches)
+	db.Preload("RentConfig").Find(&warehouses)
+	db.Preload("Items").Find(&billings, "created_at >= ?", startDate)
+	db.Find(&billingItems, "created_at >= ?", startDate)
+
+	// --- Step 2: Initialize totals ---
+	var totalOnBoard, totalOffBoard, totalInStock, totalProfit, totalExpenses, totalNetProfit float64
+
+	// --- Step 3: Per-Product Aggregation Map ---
+	productMap := map[uint]*models.ProductWiseData{}
+
+	// --- Step 4: OnBoard + InStock ---
+	for _, b := range batches {
+		p, ok := productMap[b.ProductID]
+		if !ok {
+			p = &models.ProductWiseData{}
+			productMap[b.ProductID] = p
 		}
 
-		for _, p := range batch.Products {
-			if p.ProductID == productID {
-				totalStored += p.Quantity
-			}
+		// Onboard amount
+		p.Amounts.OnBoardingAmount += b.BillingPrice * float64(b.Quantity)
+		totalOnBoard += b.BillingPrice * float64(b.Quantity)
+
+		// In-stock amount
+		p.Amounts.InStockAmount += b.BillingPrice * float64(b.StockQuantity)
+		totalInStock += b.BillingPrice * float64(b.StockQuantity)
+
+		// Stock counts
+		p.Stock.InStockCount += b.StockQuantity
+		p.Stock.OnBoardCount += b.Quantity
+	}
+
+	// --- Step 5: Offboard + Profit + Expenses ---
+	for _, item := range billingItems {
+		p, ok := productMap[item.ProductID]
+		if !ok {
+			p = &models.ProductWiseData{}
+			productMap[item.ProductID] = p
+		}
+
+		// Offboarded amount
+		offBoardAmount := item.SellingPrice * float64(item.OffboardQty)
+		p.Amounts.OffBoardingAmount += offBoardAmount
+		totalOffBoard += offBoardAmount
+
+		// Profit amount
+		profit := (item.SellingPrice - item.BuyingPrice) * float64(item.OffboardQty)
+		p.Amounts.ProfitAmount += profit
+		totalProfit += profit
+
+		// Expense from storage + billing’s other expenses
+		p.Amounts.ExpenseAmount += item.StorageCost
+		totalExpenses += item.StorageCost
+
+		// Stock offboard count
+		p.Stock.OffBoardCount += item.OffboardQty
+	}
+
+	// --- Step 6: Add global billing other expenses ---
+	var totalOtherExpense float64
+	for _, b := range billings {
+		totalOtherExpense += b.OtherExpenses
+	}
+	totalExpenses += totalOtherExpense
+
+	// --- Step 7: Compute Fast Moving & Net Profit ---
+	for _, p := range productMap {
+		p.Amounts.NetProfitAmount = p.Amounts.ProfitAmount - p.Amounts.ExpenseAmount
+
+		totalNetProfit += p.Amounts.NetProfitAmount
+
+		totalCount := p.Stock.OnBoardCount
+		if totalCount > 0 {
+			moveRatio := float64(p.Stock.OffBoardCount) / float64(totalCount)
+			p.IsFastMoving = moveRatio > 0.6
 		}
 	}
 
-	// 3️⃣ Fetch all billing records with items referencing this product
-	cursorBill, err := r.billingCol.Find(ctx, bson.M{"items.product_id": productID.Hex()})
-	if err != nil {
-		return nil, err
-	}
-	defer cursorBill.Close(ctx)
-
-	var totalReleased int
-	var totalProfit float64
-	var totalDays float64
-	var billingCount int
-
-	for cursorBill.Next(ctx) {
-		var bill models.Billing
-		if err := cursorBill.Decode(&bill); err != nil {
-			log.Println("⚠️ Failed to decode billing:", err)
-			continue
-		}
-
-		for _, item := range bill.Items {
-			if item.ProductID == productID.Hex() {
-				totalReleased += item.OffboardQty
-				totalProfit += (item.SellingPrice - item.BuyingPrice - item.StorageCost)
-				totalDays += item.DurationDays
-				billingCount++
-			}
+	// --- Step 8: Godown data (single example warehouse) ---
+	if len(warehouses) > 0 {
+		w := warehouses[0]
+		usedSpace := w.TotalArea - w.AvailableArea
+		analytics.GodownData = models.GodownData{
+			GodownID:            w.ID,
+			GodownName:          w.Name,
+			TotalSpace:          w.TotalArea,
+			AvailableSpace:      w.AvailableArea,
+			UsedSpace:           usedSpace,
+			UsedSpacePercentage: (usedSpace / w.TotalArea) * 100,
 		}
 	}
 
-	avgStorageTime := 0.0
-	if billingCount > 0 {
-		avgStorageTime = totalDays / float64(billingCount)
+	// --- Step 9: Aggregate totals ---
+	analytics.TotalAmounts = models.TotalAmounts{
+		OnBoardingAmount:  totalOnBoard,
+		OffBoardingAmount: totalOffBoard,
+		InStockAmount:     totalInStock,
+		ProfitAmount:      totalProfit,
+		ExpenseAmount:     totalExpenses,
+		NetProfitAmount:   totalProfit - totalExpenses,
 	}
 
-	// 4️⃣ Determine if product is fast moving
-	isFastMoving := false
-	if avgStorageTime < 5 {
-		isFastMoving = true
-	} else {
-		// check released quantity in last 30 days
-		cutoff := time.Now().AddDate(0, 0, -30)
-		releasedLast30 := 0
-
-		cursor30, err := r.billingCol.Find(ctx, bson.M{
-			"items.product_id": productID.Hex(),
-			"created_at":       bson.M{"$gte": cutoff},
-		})
-		if err == nil {
-			defer cursor30.Close(ctx)
-			for cursor30.Next(ctx) {
-				var bill models.Billing
-				if err := cursor30.Decode(&bill); err == nil {
-					for _, item := range bill.Items {
-						if item.ProductID == productID.Hex() {
-							releasedLast30 += item.OffboardQty
-						}
-					}
-				}
-			}
-		}
-
-		if totalReleased > 0 && float64(releasedLast30)/float64(totalReleased) > 0.5 {
-			isFastMoving = true
-		}
-	}
-
-	// 5️⃣ Construct analytics result
-	analytics := &models.ProductAnalytics{
-		ProductID:      product.ID,
-		ProductName:    product.Name,
-		TotalStored:    totalStored,
-		TotalReleased:  totalReleased,
-		AvgStorageTime: math.Round(avgStorageTime*100) / 100,
-		TotalProfit:    totalProfit,
-		IsFastMoving:   isFastMoving,
+	for _, p := range productMap {
+		analytics.ProductsData = append(analytics.ProductsData, *p)
 	}
 
 	return analytics, nil
-}
-
-// Generate analytics for all products
-func (r *AnalyticsRepo) GenerateAllProductsAnalytics(ctx context.Context) ([]*models.ProductAnalytics, error) {
-	cursor, err := r.productCol.Find(ctx, bson.M{})
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-
-	var analyticsList []*models.ProductAnalytics
-	for cursor.Next(ctx) {
-		var product models.Product
-		if err := cursor.Decode(&product); err != nil {
-			log.Println("Failed to decode product:", err)
-			continue
-		}
-
-		analytics, err := r.GenerateProductAnalytics(ctx, product.ID)
-		if err != nil {
-			log.Println("Failed analytics for product:", product.Name, err)
-			continue
-		}
-		analyticsList = append(analyticsList, analytics)
-	}
-
-	return analyticsList, nil
 }
