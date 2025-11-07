@@ -9,6 +9,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
 
 // postgres instance
@@ -64,8 +65,13 @@ func ConnectDB() *gorm.DB {
 		config.Cfg.DbTimeZone,
 	)
 
+	// ✅ Add NamingStrategy to prefix all tables with `mys_`
 	db, err := gorm.Open(postgres.Open(targetDSN), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
+		NamingStrategy: schema.NamingStrategy{
+			TablePrefix:   "mys_", // ✅ Add prefix to all table names
+			SingularTable: true,   // optional: prevent pluralization (mys_user instead of mys_users)
+		},
 	})
 	if err != nil {
 		log.Fatalf("❌ Failed to connect to target database: %v", err)
@@ -73,22 +79,23 @@ func ConnectDB() *gorm.DB {
 
 	// Step 5️⃣: Run migrations
 	err = db.AutoMigrate(
-		&models.Batch{},
-		&models.BatchProductEntry{},
 		&models.Warehouse{},
 		&models.RentRate{},
-		&models.Product{},
+		&models.User{},
 		&models.Supplier{},
+		&models.Product{},
+		&models.Profit{},
 		&models.Billing{},
 		&models.BillingItem{},
-		&models.Profit{},
-		&models.User{},
+		&models.Batch{},
+		&models.BatchProductEntry{},
 	)
 	if err != nil {
 		log.Fatalf("❌ Auto migration failed: %v", err)
 	}
 
-	log.Println("✅ Auto migration completed successfully")
+	log.Println("✅ Auto migration completed successfully with prefix 'mys_'")
+
 	DB = db
 	return DB
 }

@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -20,8 +21,19 @@ func NewProductStockRepo() *ProductStockRepo {
 func (r *ProductStockRepo) GetProductStockWithRent(ctx context.Context) ([]map[string]any, error) {
 	var entries []models.ProductStockView
 
-	err := dbconn.DB.WithContext(ctx).
-		Table("batches AS b").
+	db := dbconn.DB.WithContext(ctx)
+	ns := dbconn.DB.NamingStrategy // ✅ use the same naming strategy globally
+
+	// ✅ Dynamically resolve prefixed table names
+	batchTable := ns.TableName("Batch")
+	beTable := ns.TableName("BatchProductEntry")
+	productTable := ns.TableName("Product")
+	supplierTable := ns.TableName("Supplier")
+	warehouseTable := ns.TableName("Warehouse")
+	rentRateTable := ns.TableName("RentRate")
+
+	// ✅ Use dynamic names in query
+	err := db.Table(fmt.Sprintf("%s AS b", batchTable)).
 		Select(`
 			b.id AS batch_id,
 			b.warehouse_id,
@@ -40,12 +52,11 @@ func (r *ProductStockRepo) GetProductStockWithRent(ctx context.Context) ([]map[s
 			rr.currency,
 			rr.billing_cycle
 		`).
-		Joins("JOIN batch_product_entries AS be ON b.id = be.batch_id").
-		Joins("JOIN products AS p ON be.product_id = p.id").
-		Joins("JOIN suppliers AS s ON p.supplier_id = s.id").
-		Joins("JOIN warehouses AS w ON b.warehouse_id = w.id").
-		Joins("JOIN rent_rates AS rr ON w.rent_config_id = rr.id").
-		// Where("b.deleted_at IS NULL AND be.deleted_at IS NULL").
+		Joins(fmt.Sprintf("JOIN %s AS be ON b.id = be.batch_id", beTable)).
+		Joins(fmt.Sprintf("JOIN %s AS p ON be.product_id = p.id", productTable)).
+		Joins(fmt.Sprintf("JOIN %s AS s ON p.supplier_id = s.id", supplierTable)).
+		Joins(fmt.Sprintf("JOIN %s AS w ON b.warehouse_id = w.id", warehouseTable)).
+		Joins(fmt.Sprintf("JOIN %s AS rr ON w.rent_config_id = rr.id", rentRateTable)).
 		Find(&entries).Error
 
 	if err != nil {
@@ -104,9 +115,20 @@ func (r *ProductStockRepo) GetProductStockWithRent(ctx context.Context) ([]map[s
 // GetAllproducts aggregates product stock and related details
 func (r *ProductStockRepo) GetAllproducts(ctx context.Context) ([]models.BasicProductStockView, error) {
 	var results []models.BasicProductStockView
-	log.Println("herer")
-	err := dbconn.DB.WithContext(ctx).
-		Table("batch_product_entries AS bpe").
+	db := dbconn.DB.WithContext(ctx)
+	ns := dbconn.DB.NamingStrategy // ✅ Use GORM's naming strategy
+
+	// ✅ Dynamically resolve actual table names based on the prefix
+	batchTable := ns.TableName("Batch")                   // mys_batch
+	bpeTable := ns.TableName("BatchProductEntry")         // mys_batch_product_entry
+	productTable := ns.TableName("Product")               // mys_product
+	warehouseTable := ns.TableName("Warehouse")           // mys_warehouse
+	rentRateTable := ns.TableName("RentRate")             // mys_rent_rate
+
+	log.Println("Fetching product stock data (prefix-safe) ...")
+
+	// ✅ Use dynamic table names in your joins
+	err := db.Table(fmt.Sprintf("%s AS bpe", bpeTable)).
 		Select(`
 			b.warehouse_id,
 			w.name AS warehouse_name,
@@ -120,17 +142,20 @@ func (r *ProductStockRepo) GetAllproducts(ctx context.Context) ([]models.BasicPr
 			rr.currency,
 			rr.billing_cycle
 		`).
-		Joins("JOIN batches b ON b.id = bpe.batch_id").
-		Joins("JOIN products p ON p.id = bpe.product_id").
-		Joins("JOIN warehouses w ON w.id = b.warehouse_id").
-		Joins("JOIN rent_rates rr ON rr.id = w.rent_config_id").
+		Joins(fmt.Sprintf("JOIN %s AS b ON b.id = bpe.batch_id", batchTable)).
+		Joins(fmt.Sprintf("JOIN %s AS p ON p.id = bpe.product_id", productTable)).
+		Joins(fmt.Sprintf("JOIN %s AS w ON w.id = b.warehouse_id", warehouseTable)).
+		Joins(fmt.Sprintf("JOIN %s AS rr ON rr.id = w.rent_config_id", rentRateTable)).
 		Group("b.warehouse_id, w.name, p.id, p.name, p.category, p.storage_area, rr.currency, rr.billing_cycle").
 		Order("w.name, p.name").
 		Scan(&results).Error
 
 	if err != nil {
+		log.Printf("❌ Error fetching product stock: %v", err)
 		return nil, err
 	}
 
+	log.Printf("✅ Retrieved %d product stock entries", len(results))
 	return results, nil
 }
+

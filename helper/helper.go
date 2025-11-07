@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 	dbconn "warehouse/config/dbConn"
 	"warehouse/models"
@@ -85,22 +86,47 @@ func CheckPassword(hash, plain string) error {
 }
 
 func EnsureAdmin() {
+	ctx := context.Background()
+	db := dbconn.DB.WithContext(ctx)
+	ns := db.NamingStrategy
 
 	ur := repo.NewUserRepo()
-	const adminEmail = "admin@myson.com"
-	ctx := context.Background()
-	if _, err := ur.GetByEmail(ctx, adminEmail); err == nil {
+
+	const (
+		adminEmail = "admin@myson.com"
+		adminName  = "Super Admin"
+		adminPass  = "Secretpassword@123"
+	)
+
+	// 🔍 Check if admin exists (case-insensitive)
+	var existing models.User
+	if err := db.Table(ns.TableName("User")).
+		Where("LOWER(email) = ?", strings.ToLower(adminEmail)).
+		First(&existing).Error; err == nil {
+		log.Printf("✅ Admin user already exists: %s", existing.Email)
 		return
 	}
-	hash, _ := HashPassword("Secretpassword@123")
 
-	if err := ur.Create(ctx, &models.User{
-		Name:         "Super Admin",
+	// 🔐 Hash password securely
+	hash, err := HashPassword(adminPass)
+	if err != nil {
+		log.Printf("❌ Failed to hash admin password: %v", err)
+		return
+	}
+
+	// 👑 Create new Super Admin
+	adminUser := models.User{
+		Name:         adminName,
 		Email:        adminEmail,
 		PasswordHash: hash,
 		Role:         models.RoleAdmin,
 		WarehouseID:  1,
-	}); err != nil {
-		log.Printf("failed to seed admin: %v", err)
 	}
+
+	if err := ur.Create(ctx, &adminUser); err != nil {
+		log.Printf("❌ Failed to seed admin: %v", err)
+		return
+	}
+
+	log.Printf("🎉 Admin user seeded successfully: %s (WarehouseID=%d)", adminEmail, adminUser.WarehouseID)
 }

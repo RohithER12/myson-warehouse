@@ -23,7 +23,7 @@ func main() {
 	// ✅ Connect DB
 	dbconn.ConnectDB()
 
-	// create Admin
+	// // create Admin
 	helper.EnsureAdmin()
 
 	// ✅ Create Gin router
