@@ -54,7 +54,7 @@ func (r *BillingRepo) CreateBillingWithBatchId(ctx context.Context, billingInput
 			}
 
 			if entry.StockQuantity < item.OffboardQty {
-				return fmt.Errorf("insufficient stock for product %d in batch %d", item.ProductID, item.BatchID)
+				return fmt.Errorf("insufficient stock for product %v in batch %v", item.ProductID, item.BatchID)
 			}
 
 			var product models.Product
@@ -222,11 +222,11 @@ func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingIn
 				Where(ns.TableName("BatchProductEntry")+".product_id = ? AND "+ns.TableName("BatchProductEntry")+".stock_quantity > 0", item.ProductID).
 				Order("b.created_at ASC").
 				Find(&batchEntries).Error; err != nil {
-				return fmt.Errorf("no batches available for product %d: %w", item.ProductID, err)
+				return fmt.Errorf("no batches available for product %v: %w", item.ProductID, err)
 			}
 
 			if len(batchEntries) == 0 {
-				return fmt.Errorf("no available stock for product %d", item.ProductID)
+				return fmt.Errorf("no available stock for product %v", item.ProductID)
 			}
 
 			for _, entry := range batchEntries {
@@ -337,7 +337,7 @@ func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingIn
 			}
 
 			if remainingQty > 0 {
-				return fmt.Errorf("not enough stock for product %d (needed: %d)", item.ProductID, item.OffboardQty)
+				return fmt.Errorf("not enough stock for product %v (needed: %d)", item.ProductID, item.OffboardQty)
 			}
 		}
 
