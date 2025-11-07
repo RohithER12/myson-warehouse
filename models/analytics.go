@@ -31,7 +31,17 @@ type Stock struct {
 }
 
 type ProductWiseData struct {
-	Amounts      TotalAmounts `json:"amounts"`
-	Stock        Stock        `json:"stock"`
-	IsFastMoving bool         `json:"is_fast_moving"`
+	ProductInfo  ProductData         `json:"product_info"`
+	Amounts      TotalProductAmounts `json:"amounts"`
+	Stock        Stock               `json:"stock"`
+	IsFastMoving bool                `json:"is_fast_moving"`
+}
+
+type TotalProductAmounts struct {
+	ProductOnBoardingAmount  float64 `json:"product_on_boarding_amount"`
+	ProductOffBoardingAmount float64 `json:"product_off_boarding_amount"`
+	ProductInStockAmount     float64 `json:"product_in_stock_amount"`
+	ProductProfitAmount      float64 `json:"product_profit_amount"`
+	ProductNetProfitAmount   float64 `json:"product_net_profit_amount"`
+	ProductExpenseAmount     float64 `json:"product_expense_amount"`
 }

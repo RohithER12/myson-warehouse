@@ -19,6 +19,7 @@ type Config struct {
 	DbPort             string `mapstructure:"DB_PORT"`
 	DbSSLmode          string `mapstructure:"DB_SSLMODE"`
 	DbTimeZone         string `mapstructure:"DB_TIMEZONE"`
+	BaseUrl            string `mapstructure:"BASE_URL"`
 }
 
 var (

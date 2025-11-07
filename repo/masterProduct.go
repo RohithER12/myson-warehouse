@@ -85,3 +85,21 @@ func (r *ProductRepo) Delete(ctx context.Context, id uint) error {
 	}
 	return nil
 }
+
+func (r *ProductRepo) GetAllProductCategories(ctx context.Context) ([]string, error) {
+	db := dbconn.DB.WithContext(ctx)
+	var categories []string
+
+	err := db.
+		Table("products").
+		Select("DISTINCT category").
+		Where("category IS NOT NULL AND category <> ''").
+		Order("category ASC").
+		Pluck("category", &categories).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch product categories: %v", err)
+	}
+
+	return categories, nil
+}

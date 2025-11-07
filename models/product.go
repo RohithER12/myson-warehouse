@@ -9,7 +9,7 @@ import (
 type Product struct {
 	ID          uint           `gorm:"primaryKey;autoIncrement" json:"id"`
 	Name        string         `gorm:"type:varchar(255);not null" json:"name"`
-	SupplierID  uint           `gorm:"not null" json:"supplier_id"`
+	SupplierID  uint           `gorm:"not null;index" json:"supplier_id"`
 	Supplier    Supplier       `gorm:"foreignKey:SupplierID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"supplier"`
 	Category    string         `gorm:"type:varchar(255)" json:"category"`
 	StorageArea float64        `gorm:"type:decimal(10,2);not null" json:"storage_area"`

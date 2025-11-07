@@ -81,6 +81,8 @@ func ConnectDB() *gorm.DB {
 		&models.Supplier{},
 		&models.Billing{},
 		&models.BillingItem{},
+		&models.Profit{},
+		&models.User{},
 	)
 	if err != nil {
 		log.Fatalf("❌ Auto migration failed: %v", err)

@@ -24,8 +24,18 @@ func (r *BillingRepo) CreateBillingWithBatchId(ctx context.Context, billingInput
 	var billing models.Billing
 
 	err := dbconn.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var totalRent, totalStorage, totalBuying, totalSelling, otherExpenses, margin float64
+		var totalRent, totalStorage, totalBuying, totalSelling, otherExpenses, margin, avgExpense float64
 		var billingItems []models.BillingItem
+
+		// 🧮 Calculate average expense for this billing
+		if len(billingInput.Expenses) > 0 {
+			var expSum float64
+			for _, exp := range billingInput.Expenses {
+				expSum += exp.Amount
+				otherExpenses += exp.Amount
+			}
+			avgExpense = expSum / float64(len(billingInput.Expenses))
+		}
 
 		for _, item := range billingInput.Items {
 
@@ -54,19 +64,15 @@ func (r *BillingRepo) CreateBillingWithBatchId(ctx context.Context, billingInput
 			rate := batch.Warehouse.RentConfig.RatePerSqft
 			cycle := strings.ToLower(batch.Warehouse.RentConfig.BillingCycle)
 
-			// ✅ Use CreatedAt instead of StoredAt
+			// Calculate rent duration
 			durationDays := time.Since(batch.CreatedAt).Hours() / 24
 			if durationDays < 1 {
-				durationDays = 1 // minimum 1 day billing
+				durationDays = 1
 			}
-
-			// Prevent absurd values
 			if durationDays > 365 {
-				log.Printf("⚠️ Duration capped at 365 days for BatchID=%d (was %.2f)", batch.ID, durationDays)
 				durationDays = 365
 			}
 
-			// Compute rent multiplier based on billing cycle
 			var rentMultiplier float64
 			switch cycle {
 			case "daily":
@@ -76,22 +82,54 @@ func (r *BillingRepo) CreateBillingWithBatchId(ctx context.Context, billingInput
 			case "monthly":
 				rentMultiplier = durationDays / 30
 			default:
-				rentMultiplier = durationDays / 30 // fallback
+				rentMultiplier = durationDays / 30
 			}
 
-			// Calculate area and cost
+			// Calculate costs
 			areaUsed := product.StorageArea * float64(item.OffboardQty)
 			storageCost := rate * areaUsed * rentMultiplier
-
-			if storageCost > 1_000_000 {
-				log.Printf("🚨 Abnormally high storage cost detected! ProductID=%d BatchID=%d Cost=%.2f",
-					entry.ProductID, entry.BatchID, storageCost)
-			}
-
-			// Financial calculations
 			totalBuy := float64(item.OffboardQty) * entry.BillingPrice
 			totalSell := float64(item.OffboardQty) * item.SellingPrice
 
+			totalStorage += areaUsed
+			totalBuying += totalBuy
+			totalSelling += totalSell
+			totalRent += storageCost
+
+			// ✅ Update stock quantity
+			entry.StockQuantity -= item.OffboardQty
+			now := time.Now()
+			entry.LastOffboarded = &now
+			if err := tx.Save(&entry).Error; err != nil {
+				return err
+			}
+
+			// ✅ Update warehouse space
+			var warehouse models.Warehouse
+			if err := tx.First(&warehouse, batch.WarehouseID).Error; err == nil {
+				warehouse.AvailableArea += areaUsed
+				if warehouse.AvailableArea > warehouse.TotalArea {
+					warehouse.AvailableArea = warehouse.TotalArea
+				}
+				if err := tx.Save(&warehouse).Error; err != nil {
+					return fmt.Errorf("failed to update warehouse space: %v", err)
+				}
+			}
+
+			// ✅ Calculate profit
+			profit := (item.SellingPrice - entry.BillingPrice) * float64(item.OffboardQty)
+			netProfit := profit - storageCost - avgExpense
+
+			if err := tx.Create(&models.Profit{
+				BatchID:   entry.BatchID,
+				ProductID: entry.ProductID,
+				Profit:    profit,
+				NetProfit: netProfit,
+			}).Error; err != nil {
+				return fmt.Errorf("failed to record profit: %v", err)
+			}
+
+			// Add billing item
 			billingItems = append(billingItems, models.BillingItem{
 				ProductID:    entry.ProductID,
 				BatchID:      entry.BatchID,
@@ -104,27 +142,18 @@ func (r *BillingRepo) CreateBillingWithBatchId(ctx context.Context, billingInput
 				BatchStatus:  "offboarded",
 			})
 
-			// ✅ Correct Totals
-			totalStorage += areaUsed  // total space used (sq.ft)
-			totalBuying += totalBuy   // total buying price
-			totalSelling += totalSell // total selling price
-			totalRent += storageCost  // total rent in currency
-
-			// Update stock quantity
-			entry.StockQuantity -= item.OffboardQty
-			now := time.Now()
-			entry.LastOffboarded = &now
-			if err := tx.Save(&entry).Error; err != nil {
-				return err
+			// ✅ Mark batch inactive if all products sold
+			var remaining int64
+			tx.Model(&models.BatchProductEntry{}).
+				Where("batch_id = ? AND stock_quantity > 0", entry.BatchID).
+				Count(&remaining)
+			if remaining == 0 {
+				batch.Status = "inactive"
+				tx.Save(&batch)
 			}
 		}
 
-		// Handle extra expenses
-		for _, exp := range billingInput.Expenses {
-			otherExpenses += exp.Amount
-		}
-
-		// ✅ Correct Margin Calculation (exclude totalStorage area)
+		// Final margin
 		margin = totalSelling - (totalBuying + totalRent + otherExpenses)
 
 		billing = models.Billing{
@@ -138,8 +167,7 @@ func (r *BillingRepo) CreateBillingWithBatchId(ctx context.Context, billingInput
 		}
 
 		if err := tx.Create(&billing).Error; err != nil {
-			log.Printf("❌ Failed to create billing record: %v", err)
-			return err
+			return fmt.Errorf("failed to create billing: %v", err)
 		}
 
 		return nil
@@ -148,22 +176,32 @@ func (r *BillingRepo) CreateBillingWithBatchId(ctx context.Context, billingInput
 	if err != nil {
 		log.Printf("❌ Transaction failed: %v", err)
 	}
-
 	return &billing, err
 }
 
+// FIFO ALG
 func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingInput models.BillingInput) (*models.Billing, error) {
 	var billing models.Billing
 
 	err := dbconn.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var totalRent, totalStorage, totalBuying, totalSelling, otherExpenses, margin float64
+		var totalRent, totalStorage, totalBuying, totalSelling, otherExpenses, margin, avgExpense float64
 		var billingItems []models.BillingItem
+
+		// 🧮 Compute average expense once
+		if len(billingInput.Expenses) > 0 {
+			var expSum float64
+			for _, exp := range billingInput.Expenses {
+				expSum += exp.Amount
+				otherExpenses += exp.Amount
+			}
+			avgExpense = expSum / float64(len(billingInput.Expenses))
+		}
 
 		for _, item := range billingInput.Items {
 			remainingQty := item.OffboardQty
 			var batchEntries []models.BatchProductEntry
 
-			// ✅ Find all batches for this product that have stock left, oldest first
+			// FIFO: oldest batches first
 			if err := tx.
 				Joins("JOIN batches ON batches.id = batch_product_entries.batch_id").
 				Where("batch_product_entries.product_id = ? AND batch_product_entries.stock_quantity > 0", item.ProductID).
@@ -176,25 +214,21 @@ func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingIn
 				return fmt.Errorf("no available stock for product ID %v", item.ProductID)
 			}
 
-			// Process FIFO batches
 			for _, entry := range batchEntries {
 				if remainingQty <= 0 {
 					break
 				}
 
-				// ✅ How many units to take from this batch
 				qtyToOffboard := entry.StockQuantity
 				if qtyToOffboard > remainingQty {
 					qtyToOffboard = remainingQty
 				}
 
-				// Fetch product
 				var product models.Product
 				if err := tx.First(&product, entry.ProductID).Error; err != nil {
 					return fmt.Errorf("product not found for ID %d", entry.ProductID)
 				}
 
-				// Fetch batch + warehouse + rent config
 				var batch models.Batch
 				if err := tx.Preload("Warehouse.RentConfig").First(&batch, entry.BatchID).Error; err != nil {
 					return fmt.Errorf("batch not found for ID %d", entry.BatchID)
@@ -208,7 +242,6 @@ func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingIn
 					durationDays = 1
 				}
 				if durationDays > 365 {
-					log.Printf("⚠️ Duration capped at 365 days for BatchID=%d (was %.2f)", batch.ID, durationDays)
 					durationDays = 365
 				}
 
@@ -224,13 +257,48 @@ func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingIn
 					rentMultiplier = durationDays / 30
 				}
 
-				// ✅ Calculate financials
 				areaUsed := product.StorageArea * float64(qtyToOffboard)
 				storageCost := rate * areaUsed * rentMultiplier
 				totalBuy := float64(qtyToOffboard) * entry.BillingPrice
 				totalSell := float64(qtyToOffboard) * item.SellingPrice
 
-				// Append billing item (per batch)
+				totalStorage += areaUsed
+				totalBuying += totalBuy
+				totalSelling += totalSell
+				totalRent += storageCost
+
+				// ✅ Update stock
+				entry.StockQuantity -= qtyToOffboard
+				now := time.Now()
+				entry.LastOffboarded = &now
+				if err := tx.Save(&entry).Error; err != nil {
+					return err
+				}
+
+				// ✅ Update warehouse available area
+				var warehouse models.Warehouse
+				if err := tx.First(&warehouse, batch.WarehouseID).Error; err == nil {
+					warehouse.AvailableArea += areaUsed
+					if warehouse.AvailableArea > warehouse.TotalArea {
+						warehouse.AvailableArea = warehouse.TotalArea
+					}
+					tx.Save(&warehouse)
+				}
+
+				// ✅ Profit math
+				profit := (item.SellingPrice - entry.BillingPrice) * float64(qtyToOffboard)
+				netProfit := profit - storageCost - avgExpense
+
+				if err := tx.Create(&models.Profit{
+					BatchID:   entry.BatchID,
+					ProductID: entry.ProductID,
+					Profit:    profit,
+					NetProfit: netProfit,
+				}).Error; err != nil {
+					return fmt.Errorf("failed to record profit: %v", err)
+				}
+
+				// Add billing item
 				billingItems = append(billingItems, models.BillingItem{
 					ProductID:    entry.ProductID,
 					BatchID:      entry.BatchID,
@@ -243,36 +311,24 @@ func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingIn
 					BatchStatus:  "offboarded",
 				})
 
-				// ✅ Update totals
-				totalStorage += areaUsed
-				totalBuying += totalBuy
-				totalSelling += totalSell
-				totalRent += storageCost
-
-				// ✅ Update batch stock
-				entry.StockQuantity -= qtyToOffboard
-				now := time.Now()
-				entry.LastOffboarded = &now
-				if err := tx.Save(&entry).Error; err != nil {
-					return err
-				}
-
-				// ✅ Reduce remaining qty
 				remainingQty -= qtyToOffboard
+
+				// ✅ Mark batch inactive if empty
+				var remaining int64
+				tx.Model(&models.BatchProductEntry{}).
+					Where("batch_id = ? AND stock_quantity > 0", entry.BatchID).
+					Count(&remaining)
+				if remaining == 0 {
+					batch.Status = "inactive"
+					tx.Save(&batch)
+				}
 			}
 
-			// If still not enough stock, rollback
 			if remainingQty > 0 {
 				return fmt.Errorf("not enough stock to offboard %d units for product %v", item.OffboardQty, item.ProductID)
 			}
 		}
 
-		// Handle extra expenses
-		for _, exp := range billingInput.Expenses {
-			otherExpenses += exp.Amount
-		}
-
-		// ✅ Final margin
 		margin = totalSelling - (totalBuying + totalRent + otherExpenses)
 
 		billing = models.Billing{
@@ -286,8 +342,7 @@ func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingIn
 		}
 
 		if err := tx.Create(&billing).Error; err != nil {
-			log.Printf("❌ Failed to create billing record: %v", err)
-			return err
+			return fmt.Errorf("failed to create billing: %v", err)
 		}
 
 		return nil
@@ -296,7 +351,6 @@ func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingIn
 	if err != nil {
 		log.Printf("❌ Transaction failed: %v", err)
 	}
-
 	return &billing, err
 }
 

@@ -7,7 +7,7 @@ import (
 )
 
 // Optional: register routes
-func RegisterBatchRoutes(r *gin.Engine) {
+func RegisterBatchRoutes(r *gin.RouterGroup) {
 	b := r.Group("/batches")
 	{
 		b.POST("/", handlers.CreateBatchHandler)
