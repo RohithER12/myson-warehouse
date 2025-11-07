@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WarehouseRoutes(r *gin.Engine) {
+func WarehouseRoutes(r *gin.RouterGroup) {
 	w := r.Group("/warehouses")
 	{
 		w.POST("/", handlers.CreateWarehouse)

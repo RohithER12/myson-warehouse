@@ -14,13 +14,23 @@ import (
 var batchRepo = repo.NewBatchRepo()
 
 func CreateBatchHandler(c *gin.Context) {
+	warehouseIdAny, exists := c.Get("warehouse_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "warehouse_id not found in token"})
+		return
+	}
+	warehouseId, ok := warehouseIdAny.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid warehouse_id type"})
+		return
+	}
 	var batchData models.Batch
 	if err := c.ShouldBindJSON(&batchData); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 	batchData.Status = "active"
-
+	batchData.WarehouseID = warehouseId
 	id, err := batchRepo.AddBatch(context.Background(), &batchData)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})

@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SupplierRoutes(r *gin.Engine) {
+func SupplierRoutes(r *gin.RouterGroup) {
 	p := r.Group("/suppliers")
 	{
 		p.POST("/", handlers.Createsupplier)

@@ -51,6 +51,14 @@ func GetAllProducts(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: products})
 }
+func GetAllProductCategories(c *gin.Context) {
+	cat, err := productRepo.GetAllProductCategories(context.Background())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Message: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: cat})
+}
 
 func UpdateProduct(c *gin.Context) {
 	idStr := c.Param("id")

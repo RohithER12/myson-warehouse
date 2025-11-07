@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func BillingRoutes(r *gin.Engine) {
+func BillingRoutes(r *gin.RouterGroup) {
 	b := r.Group("/billing")
 	{
 		b.POST("/generate/batch", handlers.CreateBillingWithBatchId)
