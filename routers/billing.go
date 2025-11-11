@@ -13,5 +13,6 @@ func BillingRoutes(r *gin.RouterGroup) {
 		b.POST("/generate", handlers.CreateBillingWithOutBatchId)
 		b.GET("/", handlers.GetAllBillsHandler)
 		b.GET("/:id", handlers.GetBillByIDHandler)
+		b.GET("/product", handlers.GetAllProductsForBilling)
 	}
 }

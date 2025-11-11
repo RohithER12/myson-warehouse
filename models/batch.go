@@ -6,7 +6,6 @@ import (
 	"gorm.io/gorm"
 )
 
-
 type Batch struct {
 	ID          uint                `gorm:"primaryKey;autoIncrement" json:"id"`
 	WarehouseID uint                `gorm:"not null;index" json:"warehouse_id"`
@@ -31,4 +30,49 @@ type BatchProductEntry struct {
 	CreatedAt      time.Time  `gorm:"autoCreateTime" json:"created_at"`
 	LastOffboarded *time.Time `json:"last_offboarded,omitempty"`
 	LastUpdated    *time.Time `gorm:"autoUpdateTime" json:"last_updated,omitempty"`
+}
+type BatchProductCoreData struct {
+	ProductID      uint        `json:"product_id"`
+	Product        ProductCore `json:"product"`
+	BillingPrice   float64     ` json:"billing_price"`
+	Quantity       int         `json:"quantity"`
+	StockQuantity  int         ` json:"stock_quantity"`
+	CreatedAt      time.Time   `json:"created_at"`
+	LastOffboarded *time.Time  `json:"last_offboarded,omitempty"`
+	LastUpdated    *time.Time  ` json:"last_updated,omitempty"`
+}
+
+type ProductCore struct {
+	ID          uint      `json:"id"`
+	Name        string    ` json:"name"`
+	SupplierID  uint      ` json:"supplier_id"`
+	Category    string    ` json:"category"`
+	StorageArea float64   `json:"storage_area"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time ` json:"updated_at"`
+}
+type BatchCoreData struct {
+	ID               uint      `json:"id"`
+	WarehouseID      uint      `json:"warehouse_id"`
+	StoredAt         time.Time ` json:"stored_at"`
+	Status           string    `json:"status"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	BatchStock       int       `json:"batch_stock"`
+	AvailableStock   int       `json:"available_stock"`
+	OffBoardedAmount float64   `json:"off_boarded_amount"`
+	OnBoardedAmount  float64   `json:"on_boarded_amount"`
+}
+type BatchCoreDataWithProducts struct {
+	ID               uint                   `json:"id"`
+	WarehouseID      uint                   `json:"warehouse_id"`
+	Product          []BatchProductCoreData ` json:"product_data"`
+	StoredAt         time.Time              ` json:"stored_at"`
+	Status           string                 `json:"status"`
+	CreatedAt        time.Time              `json:"created_at"`
+	UpdatedAt        time.Time              `json:"updated_at"`
+	BatchStock       int                    `json:"batch_stock"`
+	AvailableStock   int                    `json:"available_stock"`
+	OffBoardedAmount float64                `json:"off_boarded_amount"`
+	OnBoardedAmount  float64                `json:"on_boarded_amount"`
 }

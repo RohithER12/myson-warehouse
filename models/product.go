@@ -27,3 +27,16 @@ type ProductData struct {
 	CreatedAt   time.Time ` json:"created_at"`
 	UpdatedAt   time.Time ` json:"updated_at"`
 }
+
+type ProductStockData struct {
+	BatchID     uint        `json:"batch_id"`
+	BuyingPrice float64     `json:"buying_price"`
+	ProductData ProductData ` json:"product_data"`
+	ExpenseData ExpenseData ` json:"expense_data"`
+}
+
+type ExpenseData struct {
+	RentPerProduct float64 ` json:"rent_per_product"`
+	StockQuatity   int     ` json:"stock_quantity"`
+	DurationInDays int     ` json:"duration_in_days"`
+}

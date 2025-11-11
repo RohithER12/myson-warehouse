@@ -36,6 +36,12 @@ type ProductWiseData struct {
 	Stock        Stock               `json:"stock"`
 	IsFastMoving bool                `json:"is_fast_moving"`
 }
+type ProductWiseAnalyticsData struct {
+	ProductInfo  ProductData         `json:"product_info"`
+	Amounts      TotalProductAmounts `json:"amounts"`
+	Stock        Stock               `json:"stock"`
+	IsFastMoving bool                `json:"is_fast_moving"`
+}
 
 type TotalProductAmounts struct {
 	ProductOnBoardingAmount  float64 `json:"product_on_boarding_amount"`

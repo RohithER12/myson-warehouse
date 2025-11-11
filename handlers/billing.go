@@ -50,7 +50,7 @@ func GetBillByIDHandler(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
 		return
 	}
-	batch, err := billingRepo.GetByID(context.Background(), uint(batchID))
+	batch, err := billingRepo.GetBillingCoreDataWithProductsByBillID(context.Background(), uint(batchID))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": err.Error()})
 		return
@@ -61,11 +61,21 @@ func GetBillByIDHandler(c *gin.Context) {
 
 func GetAllBillsHandler(c *gin.Context) {
 
-	batches, err := billingRepo.GetAll(context.Background())
+	batches, err := billingRepo.GetAllBillingCoreData(context.Background())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": batches})
+}
+func GetAllProductsForBilling(c *gin.Context) {
+
+	data, err := billingRepo.GetAllProductsForBilling(context.Background())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }

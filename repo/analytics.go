@@ -213,3 +213,118 @@ func (r *AnalyticsRepo) GetAnalytics(ctx context.Context, warehouseID uint, dura
 	log.Printf("📈 Analytics generated for Warehouse %d (duration: %s)", warehouseID, duration)
 	return &analytics, nil
 }
+
+func (r *AnalyticsRepo) GetProductAnalyticsById(ctx context.Context, warehouseID, productID uint) (*models.ProductWiseAnalyticsData, error) {
+	db := dbconn.DB.WithContext(ctx)
+	ns := db.NamingStrategy
+
+	var pdata models.ProductWiseAnalyticsData
+
+	// 🧱 Step 1: Get product info with supplier
+	var product models.Product
+	if err := db.Table(ns.TableName("Product")).
+		Preload("Supplier").
+		Where("id = ?", productID).
+		First(&product).Error; err != nil {
+		return nil, fmt.Errorf("product not found: %w", err)
+	}
+
+	pdata.ProductInfo = models.ProductData{
+		ID:          product.ID,
+		Name:        product.Name,
+		SupplierID:  product.SupplierID,
+		Supplier:    product.Supplier,
+		Category:    product.Category,
+		StorageArea: product.StorageArea,
+		CreatedAt:   product.CreatedAt,
+		UpdatedAt:   product.UpdatedAt,
+	}
+
+	// 🧮 Step 2: Amounts — OnBoarding, OffBoarding, InStock
+	db.Table(ns.TableName("BatchProductEntry")+" AS be").
+		Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
+		Where("be.product_id = ? AND b.warehouse_id = ?", productID, warehouseID).
+		Select("COALESCE(SUM(be.billing_price * be.quantity), 0)").
+		Scan(&pdata.Amounts.ProductOnBoardingAmount)
+
+	db.Table(ns.TableName("BillingItem")+" AS bi").
+		Joins("JOIN "+ns.TableName("Batch")+" AS b ON bi.batch_id = b.id").
+		Where("bi.product_id = ? AND b.warehouse_id = ?", productID, warehouseID).
+		Select("COALESCE(SUM(bi.selling_price * bi.offboard_qty), 0)").
+		Scan(&pdata.Amounts.ProductOffBoardingAmount)
+
+	db.Table(ns.TableName("BatchProductEntry")+" AS be").
+		Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
+		Where("be.product_id = ? AND b.warehouse_id = ? AND be.stock_quantity > 0", productID, warehouseID).
+		Select("COALESCE(SUM(be.billing_price * be.stock_quantity), 0)").
+		Scan(&pdata.Amounts.ProductInStockAmount)
+
+	// 🧮 Step 3: Profit + NetProfit
+	var profitRes struct {
+		Profit    float64
+		NetProfit float64
+	}
+	db.Table(ns.TableName("Profit")+" AS pr").
+		Joins("JOIN "+ns.TableName("Batch")+" AS b ON pr.batch_id = b.id").
+		Where("pr.product_id = ? AND b.warehouse_id = ?", productID, warehouseID).
+		Select("COALESCE(SUM(pr.profit),0) AS profit, COALESCE(SUM(pr.net_profit),0) AS net_profit").
+		Scan(&profitRes)
+
+	pdata.Amounts.ProductProfitAmount = profitRes.Profit
+	pdata.Amounts.ProductNetProfitAmount = profitRes.NetProfit
+
+	// 🧮 Step 4: Product Expense (storage_cost + shared other_expenses)
+	var productExpense float64
+	db.Raw(fmt.Sprintf(`
+		SELECT 
+			COALESCE(SUM(bi.storage_cost), 0) +
+			COALESCE(SUM(bl.other_expenses / NULLIF(prod_count.cnt, 0)), 0)
+		FROM %s AS bi
+		JOIN %s AS b ON bi.batch_id = b.id
+		JOIN %s AS bl ON bi.billing_id = bl.id
+		JOIN (
+			SELECT billing_id, COUNT(DISTINCT product_id) AS cnt
+			FROM %s
+			GROUP BY billing_id
+		) AS prod_count ON prod_count.billing_id = bl.id
+		WHERE bi.product_id = ? AND b.warehouse_id = ?;
+	`,
+		ns.TableName("BillingItem"),
+		ns.TableName("Batch"),
+		ns.TableName("Billing"),
+		ns.TableName("BillingItem")),
+		productID, warehouseID).Scan(&productExpense)
+
+	pdata.Amounts.ProductExpenseAmount = productExpense
+
+	// 🧮 Step 5: Stock Counts
+	var stockRes struct {
+		OnBoard  int
+		InStock  int
+		OffBoard int
+	}
+
+	db.Table(ns.TableName("BatchProductEntry")+" AS be").
+		Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
+		Where("b.warehouse_id = ? AND be.product_id = ?", warehouseID, productID).
+		Select("COALESCE(SUM(be.quantity),0) AS on_board, COALESCE(SUM(be.stock_quantity),0) AS in_stock").
+		Scan(&stockRes)
+
+	db.Table(ns.TableName("BillingItem")+" AS bi").
+		Joins("JOIN "+ns.TableName("Batch")+" AS b ON bi.batch_id = b.id").
+		Where("b.warehouse_id = ? AND bi.product_id = ?", warehouseID, productID).
+		Select("COALESCE(SUM(bi.offboard_qty),0) AS off_board").
+		Scan(&stockRes.OffBoard)
+
+	pdata.Stock.OnBoardCount = stockRes.OnBoard
+	pdata.Stock.InStockCount = stockRes.InStock
+	pdata.Stock.OffBoardCount = stockRes.OffBoard
+
+	// ⚡ Step 6: Fast-moving check
+	totalOn := float64(pdata.Stock.OnBoardCount)
+	totalOff := float64(pdata.Stock.OffBoardCount)
+	pdata.IsFastMoving = totalOn > 0 && (totalOff/totalOn) >= 0.7
+
+	log.Printf("📦 Analytics fetched for Product %d in Warehouse %d", productID, warehouseID)
+	return &pdata, nil
+}
