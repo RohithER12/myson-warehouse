@@ -42,8 +42,7 @@ func CreateBatchHandler(c *gin.Context) {
 
 // GetAllBatchesHandler fetches all batches
 func GetAllBatchesHandler(c *gin.Context) {
-	log.Println("got it here")
-	batches, err := batchRepo.GetAllBatches(context.Background())
+	batches, err := batchRepo.GetAllBatchesCoreData(context.Background())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
@@ -60,7 +59,7 @@ func GetBatchByIDHandler(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
 		return
 	}
-	batch, err := batchRepo.GetBatchByID(context.Background(), uint(batchID))
+	batch, err := batchRepo.GetBatchCoreDataByID(context.Background(), uint(batchID))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": err.Error()})
 		return

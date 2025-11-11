@@ -30,7 +30,7 @@ func CreateJWT(userID, warehouseId uint, email, role string, ttlMinutes int) (st
 		WarehouseId: warehouseId,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(ttlMinutes) * time.Minute)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(ttlMinutes) * time.Hour)),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

@@ -20,7 +20,6 @@ func NewBillingRepo() *BillingRepo {
 	return &BillingRepo{}
 }
 
-
 // ===============================
 // 💳 Create Billing (With BatchID)
 // ===============================
@@ -32,7 +31,7 @@ func (r *BillingRepo) CreateBillingWithBatchId(ctx context.Context, billingInput
 	err := db.Transaction(func(tx *gorm.DB) error {
 		var (
 			totalRent, totalStorage, totalBuying, totalSelling, otherExpenses, margin, avgExpense float64
-			billingItems                                                                         []models.BillingItem
+			billingItems                                                                          []models.BillingItem
 		)
 
 		// 🧮 Calculate average expense
@@ -199,7 +198,7 @@ func (r *BillingRepo) CreateBillingWithOutBatchId(ctx context.Context, billingIn
 	err := db.Transaction(func(tx *gorm.DB) error {
 		var (
 			totalRent, totalStorage, totalBuying, totalSelling, otherExpenses, margin, avgExpense float64
-			billingItems                                                                         []models.BillingItem
+			billingItems                                                                          []models.BillingItem
 		)
 
 		// 🧮 Average expense calculation
@@ -386,6 +385,150 @@ func (r *BillingRepo) GetByID(ctx context.Context, id uint) (*models.Billing, er
 
 	return &billing, nil
 }
+func (r *BillingRepo) GetBillingCoreDataWithProductsByBillID(ctx context.Context, id uint) (models.BillingCoreDataWithProducts, error) {
+	db := dbconn.DB.WithContext(ctx)
+	ns := db.NamingStrategy
+
+	// Step 1️⃣: Temporary struct for scalar fields only (no slice)
+	type billingRow struct {
+		ID            uint
+		TotalRent     float64
+		TotalStorage  float64
+		TotalBuying   float64
+		TotalSelling  float64
+		OtherExpenses float64
+		Margin        float64
+		CreatedAt     time.Time
+		UpdatedAt     time.Time
+	}
+
+	var row billingRow
+
+	// ✅ Step 2: Fetch billing summary
+	err := db.Table(ns.TableName("Billing") + " AS b").
+		Select(`
+			b.id,
+			COALESCE(b.total_rent, 0) AS total_rent,
+			COALESCE(b.total_storage, 0) AS total_storage,
+			COALESCE(b.total_buying, 0) AS total_buying,
+			COALESCE(b.total_selling, 0) AS total_selling,
+			COALESCE(b.other_expenses, 0) AS other_expenses,
+			COALESCE(b.margin, 0) AS margin,
+			b.created_at,
+			b.updated_at
+		`).
+		Where("b.id = ?", id).
+		Scan(&row).Error
+
+	if err != nil {
+		return models.BillingCoreDataWithProducts{}, fmt.Errorf("failed to fetch billing data: %w", err)
+	}
+	if row.ID == 0 {
+		return models.BillingCoreDataWithProducts{}, fmt.Errorf("billing not found with id %d", id)
+	}
+
+	// ✅ Step 3: Struct for joined billing items + product info
+	type itemRow struct {
+		ID           uint
+		ProductID    uint
+		ProductName  string
+		SupplierID   uint
+		Category     string
+		StorageArea  float64
+		ProductCreatedAt time.Time
+		ProductUpdatedAt time.Time
+		BatchID      uint
+		OffboardQty  int
+		DurationDays float64
+		StorageCost  float64
+		BuyingPrice  float64
+		SellingPrice float64
+		TotalSelling float64
+		BatchStatus  string
+		CreatedAt    time.Time
+		UpdatedAt    time.Time
+	}
+
+	var itemRows []itemRow
+
+	// ✅ Step 4: Fetch billing items with joined product data
+	err = db.Table(ns.TableName("BillingItem") + " AS bi").
+		Select(`
+			bi.id,
+			bi.product_id,
+			p.name AS product_name,
+			p.supplier_id,
+			p.category,
+			p.storage_area,
+			p.created_at AS product_created_at,
+			p.updated_at AS product_updated_at,
+			bi.batch_id,
+			bi.offboard_qty,
+			bi.duration_days,
+			bi.storage_cost,
+			bi.buying_price,
+			bi.selling_price,
+			bi.total_selling,
+			bi.batch_status,
+			bi.created_at,
+			bi.updated_at
+		`).
+		Joins("JOIN " + ns.TableName("Product") + " AS p ON bi.product_id = p.id").
+		Where("bi.billing_id = ?", id).
+		Order("bi.created_at ASC").
+		Scan(&itemRows).Error
+
+	if err != nil {
+		return models.BillingCoreDataWithProducts{}, fmt.Errorf("failed to fetch billing items: %w", err)
+	}
+
+	// ✅ Step 5: Build item list with embedded ProductCore
+	var items []models.BillingItemCoreData
+	for _, ir := range itemRows {
+		items = append(items, models.BillingItemCoreData{
+			ID:           ir.ID,
+			Product: models.ProductCore{
+				ID:          ir.ProductID,
+				Name:        ir.ProductName,
+				SupplierID:  ir.SupplierID,
+				Category:    ir.Category,
+				StorageArea: ir.StorageArea,
+				CreatedAt:   ir.ProductCreatedAt,
+				UpdatedAt:   ir.ProductUpdatedAt,
+			},
+			BatchID:      ir.BatchID,
+			OffboardQty:  ir.OffboardQty,
+			DurationDays: ir.DurationDays,
+			StorageCost:  ir.StorageCost,
+			BuyingPrice:  ir.BuyingPrice,
+			SellingPrice: ir.SellingPrice,
+			TotalSelling: ir.TotalSelling,
+			BatchStatus:  ir.BatchStatus,
+			CreatedAt:    ir.CreatedAt,
+			UpdatedAt:    ir.UpdatedAt,
+		})
+	}
+
+	// ✅ Step 6: Construct the final output struct
+	result := models.BillingCoreDataWithProducts{
+		ID:            row.ID,
+		TotalRent:     row.TotalRent,
+		TotalStorage:  row.TotalStorage,
+		TotalBuying:   row.TotalBuying,
+		TotalSelling:  row.TotalSelling,
+		OtherExpenses: row.OtherExpenses,
+		Margin:        row.Margin,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+		Products:      items,
+	}
+
+	log.Printf("🧾 Billing %d fetched successfully with %d products", id, len(items))
+	return result, nil
+}
+
+
+
 
 // ===============================
 // 📋 Get All Billings
@@ -406,3 +549,145 @@ func (r *BillingRepo) GetAll(ctx context.Context) ([]models.Billing, error) {
 	log.Printf("📑 Retrieved %d billing records", len(billings))
 	return billings, nil
 }
+
+func (r *BillingRepo) GetAllBillingCoreData(ctx context.Context) ([]models.BillingCoreData, error) {
+	db := dbconn.DB.WithContext(ctx)
+	ns := db.NamingStrategy
+
+	var results []models.BillingCoreData
+
+	err := db.Table(ns.TableName("Billing") + " AS bl").
+		Select(`
+			bl.id,
+			COALESCE(bl.total_rent, 0) AS total_rent,
+			COALESCE(bl.total_storage, 0) AS total_storage,
+			COALESCE(bl.total_buying, 0) AS total_buying,
+			COALESCE(bl.total_selling, 0) AS total_selling,
+			COALESCE(bl.other_expenses, 0) AS other_expenses,
+			COALESCE(bl.margin, 0) AS margin,
+			bl.created_at,
+			bl.updated_at
+		`).
+		Order("bl.created_at DESC").
+		Scan(&results).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch billing core data: %w", err)
+	}
+
+	log.Printf("🧾 Retrieved %d billing core records", len(results))
+	return results, nil
+}
+
+func (r *BillingRepo) GetAllProductsForBilling(ctx context.Context) ([]models.ProductStockData, error) {
+	db := dbconn.DB.WithContext(ctx)
+	ns := db.NamingStrategy
+
+	type rawData struct {
+		BatchID         uint
+		ProductID       uint
+		ProductName     string
+		Category        string
+		StorageArea     float64
+		SupplierID      uint
+		SupplierName    string
+		SupplierDesc    string
+		SupplierCreated time.Time
+		SupplierUpdated time.Time
+		RentPerSqft     float64
+		StockQuantity   int
+		BatchCreated    time.Time
+		BuyingPrice     float64
+		WarehouseID     uint
+	}
+
+	var rows []rawData
+
+	// 🧠 Query: Fetch all active batch products with supplier & warehouse info
+	err := db.Table(ns.TableName("BatchProductEntry")+" AS be").
+		Select(`
+			be.batch_id,
+			p.id AS product_id,
+			p.name AS product_name,
+			p.category,
+			p.storage_area,
+			s.id AS supplier_id,
+			s.name AS supplier_name,
+			s.description AS supplier_desc,
+			s.created_at AS supplier_created,
+			s.updated_at AS supplier_updated,
+			rr.rate_per_sqft AS rent_per_sqft,
+			be.stock_quantity,
+			be.billing_price AS buying_price,
+			b.created_at AS batch_created,
+			b.warehouse_id
+		`).
+		Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
+		Joins("JOIN "+ns.TableName("Product")+" AS p ON be.product_id = p.id").
+		Joins("JOIN "+ns.TableName("Supplier")+" AS s ON p.supplier_id = s.id").
+		Joins("JOIN "+ns.TableName("Warehouse")+" AS w ON b.warehouse_id = w.id").
+		Joins("JOIN "+ns.TableName("RentRate")+" AS rr ON w.rent_config_id = rr.id").
+		Where("be.stock_quantity > 0 AND b.status = ?", "active").
+		Order("b.created_at ASC").
+		Scan(&rows).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch products for billing: %w", err)
+	}
+
+	if len(rows) == 0 {
+		log.Printf("⚠️ No active stock available for billing")
+		return nil, nil
+	}
+
+	now := time.Now()
+	results := make([]models.ProductStockData, 0, len(rows))
+
+	for _, row := range rows {
+		// 🕒 Calculate number of days since batch creation
+		duration := int(now.Sub(row.BatchCreated).Hours() / 24)
+		if duration < 1 {
+			duration = 1
+		}
+
+		// 💰 Rent per product = StorageArea * RatePerSqft
+		rentPerProduct := row.StorageArea * row.RentPerSqft
+
+		// 🧱 Build product info
+		productData := models.ProductData{
+			ID:         row.ProductID,
+			Name:       row.ProductName,
+			SupplierID: row.SupplierID,
+			Supplier: models.Supplier{
+				ID:          row.SupplierID,
+				Name:        row.SupplierName,
+				Description: row.SupplierDesc,
+				CreatedAt:   row.SupplierCreated,
+				UpdatedAt:   row.SupplierUpdated,
+			},
+			Category:    row.Category,
+			StorageArea: row.StorageArea,
+			CreatedAt:   row.BatchCreated,
+			UpdatedAt:   row.BatchCreated,
+		}
+
+		// 🧮 Expense calculation data
+		expenseData := models.ExpenseData{
+			RentPerProduct: rentPerProduct,
+			StockQuatity:   row.StockQuantity,
+			DurationInDays: duration,
+		}
+
+		// 📦 Append final record
+		results = append(results, models.ProductStockData{
+			BatchID:     row.BatchID,
+			BuyingPrice: row.BuyingPrice,
+			ProductData: productData,
+			ExpenseData: expenseData,
+		})
+	}
+
+	log.Printf("📦 Retrieved %d active products for billing", len(results))
+	return results, nil
+}
+
