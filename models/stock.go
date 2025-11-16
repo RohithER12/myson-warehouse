@@ -54,3 +54,21 @@ type BasicProductStockView struct {
 	Currency            string  `json:"currency"`
 	BillingCycle        string  `json:"billing_cycle"`
 }
+
+type StockSearchData struct {
+	ProductID     uint        `json:"product_id"`
+	ProductName   string      `json:"product_name"`
+	SupplierName  string      `json:"supplier_name"`
+	Category      string      `json:"category"`
+	StorageArea   float64     ` json:"storage_area"`
+	WarehouseID   uint        `json:"warehouse_id"`
+	WarehouseName string      `json:"warehouse_name"`
+	StockData     []StockData `json:"stock_data"`
+}
+
+type StockData struct {
+	BatchID    uint         `json:"batch_id"`
+	StockCount Stock        `json:"stock_count"`
+	Amounts    TotalAmounts `json:"amounts"`
+	RentAmount float64      `json:"rent_amount"`
+}

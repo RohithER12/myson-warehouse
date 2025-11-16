@@ -1,9 +1,15 @@
 package models
 
 type ProductAnalytics struct {
-	TotalAmounts TotalAmounts      `json:"total_amounts"`
-	GodownData   GodownData        `json:"godown_data"`
-	ProductsData []ProductWiseData `json:"products_data"`
+	TotalAmounts   TotalAmounts      `json:"total_amounts"`
+	GodownData     GodownData        `json:"godown_data"`
+	ProductsData   []ProductWiseData `json:"products_data"`
+	TopTenProducts []ProductCount    `json:"top_ten_products"`
+}
+
+type ProductCount struct {
+	ProductInfo ProductData `json:"product_info"`
+	Stock       Stock       `json:"stock"`
 }
 
 type TotalAmounts struct {
