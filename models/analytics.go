@@ -56,4 +56,5 @@ type TotalProductAmounts struct {
 	ProductProfitAmount      float64 `json:"product_profit_amount"`
 	ProductNetProfitAmount   float64 `json:"product_net_profit_amount"`
 	ProductExpenseAmount     float64 `json:"product_expense_amount"`
+	RentPerSpace             float64 `json:"rent_per_space"`
 }

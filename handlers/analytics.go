@@ -31,6 +31,25 @@ func GetAnalyticsHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }
+func GetFastAndSlowMovingProductAnalytics(c *gin.Context) {
+	warehouseIdAny, exists := c.Get("warehouse_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "warehouse_id not found in token"})
+		return
+	}
+	warehouseId, ok := warehouseIdAny.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid warehouse_id type"})
+		return
+	}
+	data, err := analyticsRepo.GetFastAndSlowMovingProductAnalytics(context.Background(),warehouseId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+}
 
 func GetProductAnalyticsByIdHandler(c *gin.Context) {
 	productIDStr := c.Param("product_id") // assuming path like /analytics/product/:product_id

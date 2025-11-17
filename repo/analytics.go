@@ -258,7 +258,6 @@ func (r *AnalyticsRepo) GetAnalytics(ctx context.Context, warehouseID uint, dura
 	return &analytics, nil
 }
 
-
 func (r *AnalyticsRepo) GetProductAnalyticsById(ctx context.Context, warehouseID, productID uint) (*models.ProductWiseAnalyticsData, error) {
 	db := dbconn.DB.WithContext(ctx)
 	ns := db.NamingStrategy
@@ -373,3 +372,191 @@ func (r *AnalyticsRepo) GetProductAnalyticsById(ctx context.Context, warehouseID
 	log.Printf("📦 Analytics fetched for Product %d in Warehouse %d", productID, warehouseID)
 	return &pdata, nil
 }
+
+func (r *AnalyticsRepo) GetFastAndSlowMovingProductAnalytics(ctx context.Context, warehouseID uint) (map[string][]models.ProductWiseData, error) {
+	db := dbconn.DB.WithContext(ctx)
+	ns := db.NamingStrategy
+
+	// Load all products with suppliers
+	var products []models.Product
+	if err := db.Table(ns.TableName("Product")).Preload("Supplier").Find(&products).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch products: %w", err)
+	}
+
+	// ----------------------------------------------
+	// Get rent rate for this warehouse
+	// ----------------------------------------------
+	var rentRate float64
+	db.Raw(`
+		SELECT rr.rate_per_sqft
+		FROM `+ns.TableName("Warehouse")+` w
+		JOIN `+ns.TableName("RentRate")+` rr ON rr.id = w.rent_config_id
+		WHERE w.id = ?
+		LIMIT 1
+	`, warehouseID).Scan(&rentRate)
+
+	type candidate struct {
+		Data         models.ProductWiseData
+		RentPerSpace float64
+		OffBoard     int
+	}
+
+	var candidates []candidate
+
+	// Process each product
+	for _, p := range products {
+
+		var pdata models.ProductWiseData
+
+		// Fill product info
+		pdata.ProductInfo = models.ProductData{
+			ID:          p.ID,
+			Name:        p.Name,
+			SupplierID:  p.SupplierID,
+			Supplier:    p.Supplier,
+			Category:    p.Category,
+			StorageArea: p.StorageArea,
+			CreatedAt:   p.CreatedAt,
+			UpdatedAt:   p.UpdatedAt,
+		}
+
+		// ----------------------------------------------
+		// STOCK COUNT
+		// ----------------------------------------------
+		var stockRes struct {
+			OnBoard  int
+			InStock  int
+			OffBoard int
+		}
+
+		db.Table(ns.TableName("BatchProductEntry")+" be").
+			Joins("JOIN "+ns.TableName("Batch")+" b ON be.batch_id = b.id").
+			Select("COALESCE(SUM(be.quantity),0) AS on_board, COALESCE(SUM(be.stock_quantity),0) AS in_stock").
+			Where("be.product_id = ? AND b.warehouse_id = ?", p.ID, warehouseID).
+			Scan(&stockRes)
+
+		db.Table(ns.TableName("BillingItem")+" bi").
+			Joins("JOIN "+ns.TableName("Batch")+" b ON bi.batch_id = b.id").
+			Select("COALESCE(SUM(bi.offboard_qty),0)").
+			Where("bi.product_id = ? AND b.warehouse_id = ?", p.ID, warehouseID).
+			Scan(&stockRes.OffBoard)
+
+		pdata.Stock.OnBoardCount = stockRes.OnBoard
+		pdata.Stock.InStockCount = stockRes.InStock
+		pdata.Stock.OffBoardCount = stockRes.OffBoard
+
+		// Skip products with zero onboard count
+		if pdata.Stock.OnBoardCount == 0 {
+			continue
+		}
+
+		// ----------------------------------------------
+		// AMOUNTS
+		// ----------------------------------------------
+
+		// Onboarding Amount
+		db.Table(ns.TableName("BatchProductEntry")+" be").
+			Joins("JOIN "+ns.TableName("Batch")+" b ON be.batch_id = b.id").
+			Select("COALESCE(SUM(be.billing_price * be.quantity),0)").
+			Where("be.product_id = ? AND b.warehouse_id = ?", p.ID, warehouseID).
+			Scan(&pdata.Amounts.ProductOnBoardingAmount)
+
+		// Offboarding Amount
+		db.Table(ns.TableName("BillingItem")+" bi").
+			Joins("JOIN "+ns.TableName("Batch")+" b ON bi.batch_id = b.id").
+			Select("COALESCE(SUM(bi.selling_price * bi.offboard_qty),0)").
+			Where("bi.product_id = ? AND b.warehouse_id = ?", p.ID, warehouseID).
+			Scan(&pdata.Amounts.ProductOffBoardingAmount)
+
+		// Instock Amount
+		db.Table(ns.TableName("BatchProductEntry")+" be").
+			Joins("JOIN "+ns.TableName("Batch")+" b ON be.batch_id = b.id").
+			Select("COALESCE(SUM(be.billing_price * be.stock_quantity),0)").
+			Where("be.product_id = ? AND b.warehouse_id = ? AND be.stock_quantity > 0", p.ID, warehouseID).
+			Scan(&pdata.Amounts.ProductInStockAmount)
+
+		// Profit + Net Profit
+		var profitRes struct {
+			Profit    float64
+			NetProfit float64
+		}
+
+		db.Table(ns.TableName("Profit")+" pr").
+			Joins("JOIN "+ns.TableName("Batch")+" b ON pr.batch_id = b.id").
+			Select("COALESCE(SUM(pr.profit),0) AS profit, COALESCE(SUM(pr.net_profit),0) AS net_profit").
+			Where("pr.product_id = ? AND b.warehouse_id = ?", p.ID, warehouseID).
+			Scan(&profitRes)
+
+		pdata.Amounts.ProductProfitAmount = profitRes.Profit
+		pdata.Amounts.ProductNetProfitAmount = profitRes.NetProfit
+
+		// Expense (storage cost)
+		db.Table(ns.TableName("BillingItem")+" bi").
+			Joins("JOIN "+ns.TableName("Batch")+" b ON bi.batch_id = b.id").
+			Select("COALESCE(SUM(bi.storage_cost),0)").
+			Where("bi.product_id = ? AND b.warehouse_id = ?", p.ID, warehouseID).
+			Scan(&pdata.Amounts.ProductExpenseAmount)
+
+		// ----------------------------------------------
+		// RENT PER SPACE
+		// ----------------------------------------------
+		rentPerUnit := rentRate * p.StorageArea
+		offboardRent := pdata.Amounts.ProductExpenseAmount
+		instockRent := rentPerUnit * float64(pdata.Stock.InStockCount)
+		totalRent := offboardRent + instockRent
+
+		rentPerSpace := totalRent / (float64(pdata.Stock.OnBoardCount) * p.StorageArea)
+		pdata.Amounts.RentPerSpace = rentPerSpace
+
+		candidates = append(candidates, candidate{
+			Data:         pdata,
+			RentPerSpace: rentPerSpace,
+			OffBoard:     pdata.Stock.OffBoardCount,
+		})
+	}
+
+	// ----------------------------------------------
+	// SORT ASCENDING BY RentPerSpace
+	// ----------------------------------------------
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].RentPerSpace < candidates[j].RentPerSpace
+	})
+
+	// ----------------------------------------------
+	// FAST MOVING = lowest rentPerSpace AND offboard > 0
+	// ----------------------------------------------
+	var fast []models.ProductWiseData
+	for _, c := range candidates {
+		if c.OffBoard > 0 {
+			fast = append(fast, c.Data)
+			if len(fast) >= 5 {
+				break
+			}
+		}
+	}
+
+	// ----------------------------------------------
+	// SLOW MOVING = highest rentPerSpace (from end)
+	// ----------------------------------------------
+	var slow []models.ProductWiseData
+	for i := len(candidates) - 1; i >= 0 && len(slow) < 5; i-- {
+		slow = append(slow, candidates[i].Data)
+	}
+
+	// Set flags
+	for i := range fast {
+		fast[i].IsFastMoving = true
+	}
+	for i := range slow {
+		slow[i].IsFastMoving = false
+	}
+
+	return map[string][]models.ProductWiseData{
+		"fast_products": fast,
+		"slow_products": slow,
+	}, nil
+}
+
+
+
+
