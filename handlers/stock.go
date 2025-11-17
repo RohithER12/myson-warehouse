@@ -13,7 +13,17 @@ import (
 var productStockRepo = repo.NewProductStockRepo()
 
 func GetProductStockWithRentHandler(c *gin.Context) {
-	stock, err := productStockRepo.GetProductStockWithRent(context.Background())
+	warehouseIdAny, exists := c.Get("warehouse_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "warehouse_id not found in token"})
+		return
+	}
+	warehouseId, ok := warehouseIdAny.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid warehouse_id type"})
+		return
+	}
+	stock, err := productStockRepo.GetProductStockWithRent(context.Background(), warehouseId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -29,7 +39,17 @@ func GetProductStockWithRentHandler(c *gin.Context) {
 }
 
 func GetAllProductStockHandler(c *gin.Context) {
-	stock, err := productStockRepo.GetAllproducts(context.Background())
+	warehouseIdAny, exists := c.Get("warehouse_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "warehouse_id not found in token"})
+		return
+	}
+	warehouseId, ok := warehouseIdAny.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid warehouse_id type"})
+		return
+	}
+	stock, err := productStockRepo.GetAllproducts(context.Background(), warehouseId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,

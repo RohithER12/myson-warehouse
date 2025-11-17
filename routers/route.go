@@ -40,4 +40,5 @@ func registerAdminRoutes(r *gin.RouterGroup) {
 	admin.Use(middleware.RequireRoles("admin"))
 
 	AnalyticsRoutes(admin)
+	AdminRoutes(admin)
 }

@@ -2,8 +2,8 @@ package helper
 
 import (
 	"errors"
-	"os"
 	"time"
+	"warehouse/config"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -17,7 +17,8 @@ type Claims struct {
 }
 
 func jwtSecret() []byte {
-	sec := os.Getenv("JWT_SECRET")
+	config.LoadConfig()
+	sec := config.Cfg.JWTSecret
 	return []byte(sec)
 }
 
