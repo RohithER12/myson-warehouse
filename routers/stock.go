@@ -10,4 +10,5 @@ func RegisterStockRoutes(r *gin.RouterGroup) {
 	s := r.Group("/stock")
 	s.GET("/", handlers.GetProductStockWithRentHandler)
 	s.GET("/products", handlers.GetAllProductStockHandler)
+	s.GET("/:product_id", handlers.SearchStockProductData)
 }

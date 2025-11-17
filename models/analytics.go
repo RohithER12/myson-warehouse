@@ -1,9 +1,15 @@
 package models
 
 type ProductAnalytics struct {
-	TotalAmounts TotalAmounts      `json:"total_amounts"`
-	GodownData   GodownData        `json:"godown_data"`
-	ProductsData []ProductWiseData `json:"products_data"`
+	TotalAmounts   TotalAmounts      `json:"total_amounts"`
+	GodownData     GodownData        `json:"godown_data"`
+	ProductsData   []ProductWiseData `json:"products_data"`
+	TopTenProducts []ProductCount    `json:"top_ten_products"`
+}
+
+type ProductCount struct {
+	ProductInfo ProductData `json:"product_info"`
+	Stock       Stock       `json:"stock"`
 }
 
 type TotalAmounts struct {
@@ -50,4 +56,5 @@ type TotalProductAmounts struct {
 	ProductProfitAmount      float64 `json:"product_profit_amount"`
 	ProductNetProfitAmount   float64 `json:"product_net_profit_amount"`
 	ProductExpenseAmount     float64 `json:"product_expense_amount"`
+	RentPerSpace             float64 `json:"rent_per_space"`
 }
