@@ -60,8 +60,18 @@ func GetBillByIDHandler(c *gin.Context) {
 }
 
 func GetAllBillsHandler(c *gin.Context) {
+	warehouseIdAny, exists := c.Get("warehouse_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "warehouse_id not found in token"})
+		return
+	}
+	warehouseId, ok := warehouseIdAny.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid warehouse_id type"})
+		return
+	}
 
-	batches, err := billingRepo.GetAllBillingCoreData(context.Background())
+	batches, err := billingRepo.GetAllBillingCoreData(context.Background(),warehouseId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
@@ -70,8 +80,17 @@ func GetAllBillsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": batches})
 }
 func GetAllProductsForBilling(c *gin.Context) {
-
-	data, err := billingRepo.GetAllProductsForBilling(context.Background())
+warehouseIdAny, exists := c.Get("warehouse_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "warehouse_id not found in token"})
+		return
+	}
+	warehouseId, ok := warehouseIdAny.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid warehouse_id type"})
+		return
+	}
+	data, err := billingRepo.GetAllProductsForBilling(context.Background(),warehouseId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return

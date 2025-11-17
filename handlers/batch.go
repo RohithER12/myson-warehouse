@@ -42,7 +42,17 @@ func CreateBatchHandler(c *gin.Context) {
 
 // GetAllBatchesHandler fetches all batches
 func GetAllBatchesHandler(c *gin.Context) {
-	batches, err := batchRepo.GetAllBatchesCoreData(context.Background())
+	warehouseIdAny, exists := c.Get("warehouse_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "warehouse_id not found in token"})
+		return
+	}
+	warehouseId, ok := warehouseIdAny.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid warehouse_id type"})
+		return
+	}
+	batches, err := batchRepo.GetAllBatchesCoreData(context.Background(), warehouseId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
@@ -70,9 +80,18 @@ func GetBatchByIDHandler(c *gin.Context) {
 
 // GetBatchesByProductIDHandler fetches all batches containing a specific product
 func GetBatchesByProductIDHandler(c *gin.Context) {
-	log.Println("got it here")
+	warehouseIdAny, exists := c.Get("warehouse_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "warehouse_id not found in token"})
+		return
+	}
+	warehouseId, ok := warehouseIdAny.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid warehouse_id type"})
+		return
+	}
 	productID := c.Param("id")
-	batches, err := batchRepo.GetBatchesByProductID(context.Background(), productID)
+	batches, err := batchRepo.GetBatchesByProductID(context.Background(), warehouseId, productID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return

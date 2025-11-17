@@ -11,7 +11,7 @@ import (
 
 var userRepo = repo.NewUserRepo()
 
-func Register(c *gin.Context) {
+func RegisterUser(c *gin.Context) {
 	var in models.RegisterDTO
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
@@ -32,6 +32,34 @@ func Register(c *gin.Context) {
 		PasswordHash: hash,
 		WarehouseID:  in.WarehouseID,
 		Role:         models.RoleEmployee,
+	}
+	if err := userRepo.Create(c, u); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"success": true, "data": gin.H{"id": u.ID}})
+}
+func RegisterAdmin(c *gin.Context) {
+	var in models.RegisterDTO
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if in.ConfirmPassword != in.Password {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "password mismatch"})
+		return
+	}
+	hash, err := helper.HashPassword(in.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "hash error"})
+		return
+	}
+	u := &models.User{
+		Name:         in.Name,
+		Email:        in.Email,
+		PasswordHash: hash,
+		WarehouseID:  in.WarehouseID,
+		Role:         models.RoleAdmin,
 	}
 	if err := userRepo.Create(c, u); err != nil {
 		c.JSON(http.StatusConflict, gin.H{"success": false, "message": err.Error()})

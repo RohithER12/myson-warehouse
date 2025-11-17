@@ -42,7 +42,7 @@ func GetFastAndSlowMovingProductAnalytics(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid warehouse_id type"})
 		return
 	}
-	data, err := analyticsRepo.GetFastAndSlowMovingProductAnalytics(context.Background(),warehouseId)
+	data, err := analyticsRepo.GetFastAndSlowMovingProductAnalytics(context.Background(), warehouseId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return

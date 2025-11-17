@@ -112,7 +112,7 @@ func (r *BatchRepo) GetAllBatches(ctx context.Context) ([]models.Batch, error) {
 }
 
 // 📦 Get all batches
-func (r *BatchRepo) GetAllBatchesCoreData(ctx context.Context) ([]models.BatchCoreData, error) {
+func (r *BatchRepo) GetAllBatchesCoreData(ctx context.Context, warehouseId uint) ([]models.BatchCoreData, error) {
 	db := dbconn.DB.WithContext(ctx)
 	ns := db.NamingStrategy
 
@@ -131,7 +131,7 @@ func (r *BatchRepo) GetAllBatchesCoreData(ctx context.Context) ([]models.BatchCo
 
 	var rows []rawData
 
-	// 🧠 Query combines data from batches, batch_product_entries, and billing_items
+	// 🧠 Query with warehouse filter
 	err := db.Table(ns.TableName("Batch") + " AS b").
 		Select(`
 			b.id,
@@ -147,6 +147,7 @@ func (r *BatchRepo) GetAllBatchesCoreData(ctx context.Context) ([]models.BatchCo
 		`).
 		Joins("LEFT JOIN " + ns.TableName("BatchProductEntry") + " AS be ON be.batch_id = b.id").
 		Joins("LEFT JOIN " + ns.TableName("BillingItem") + " AS bi ON bi.batch_id = b.id").
+		Where("b.warehouse_id = ?", warehouseId). // ✅ ← Warehouse filter added
 		Group("b.id, b.warehouse_id, b.stored_at, b.status, b.created_at, b.updated_at").
 		Order("b.created_at DESC").
 		Scan(&rows).Error
@@ -171,9 +172,10 @@ func (r *BatchRepo) GetAllBatchesCoreData(ctx context.Context) ([]models.BatchCo
 		})
 	}
 
-	log.Printf("📦 Retrieved %d batch core data records", len(results))
+	log.Printf("📦 Retrieved %d batch core data records for warehouse %d", len(results), warehouseId)
 	return results, nil
 }
+
 
 // 🔍 Get batch by ID
 func (r *BatchRepo) GetBatchByID(ctx context.Context, id uint) (*models.Batch, error) {
@@ -329,14 +331,16 @@ func (r *BatchRepo) GetBatchCoreDataByID(ctx context.Context, id uint) (*models.
 
 
 // 🔍 Get batches by Product ID
-func (r *BatchRepo) GetBatchesByProductID(ctx context.Context, productID string) ([]models.Batch, error) {
+func (r *BatchRepo) GetBatchesByProductID(ctx context.Context, warehouseId uint, productID string) ([]models.Batch, error) {
 	db := dbconn.DB.WithContext(ctx)
 	ns := db.NamingStrategy
 
 	var batches []models.Batch
-	err := db.Table(ns.TableName("Batch")).
-		Joins("JOIN "+ns.TableName("BatchProductEntry")+" AS bpe ON bpe.batch_id = "+ns.TableName("Batch")+".id").
+
+	err := db.Table(ns.TableName("Batch") + " AS b").
+		Joins("JOIN "+ns.TableName("BatchProductEntry")+" AS bpe ON bpe.batch_id = b.id").
 		Where("bpe.product_id = ?", productID).
+		Where("b.warehouse_id = ?", warehouseId). // ✅ Warehouse filter added
 		Preload("Products.Product.Supplier").
 		Preload("Warehouse.RentConfig").
 		Find(&batches).Error
@@ -345,6 +349,7 @@ func (r *BatchRepo) GetBatchesByProductID(ctx context.Context, productID string)
 		return nil, fmt.Errorf("failed to fetch batches for product %s: %w", productID, err)
 	}
 
-	log.Printf("🔍 Retrieved %d batches for ProductID=%s", len(batches), productID)
+	log.Printf("🔍 Retrieved %d batches for ProductID=%s in WarehouseID=%d", len(batches), productID, warehouseId)
 	return batches, nil
 }
+

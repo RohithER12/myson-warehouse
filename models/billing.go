@@ -37,6 +37,41 @@ type BillingItem struct {
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
+// ----------------------------------------------------
+// 💰 EXPENSE TABLES (On-board & Off-board)
+// ----------------------------------------------------
+
+// Expenses applied at the time of onboarding a product
+type OnBoardExpense struct {
+	ID      uint    `gorm:"primaryKey;autoIncrement" json:"id"`
+	BatchID uint    `gorm:"not null;index" json:"batch_id"` // FK → Batch table
+	Type    string  `gorm:"type:varchar(100);not null" json:"type"`
+	Amount  float64 `gorm:"not null" json:"amount"`
+	Notes   string  `gorm:"type:text" json:"notes"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Relationship (Corrected)
+	Batch Batch `gorm:"foreignKey:BatchID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"batch"`
+}
+
+
+// Expenses applied at the time of offboarding a product
+type OffBoardExpense struct {
+	ID        uint    `gorm:"primaryKey;autoIncrement" json:"id"`
+	BillingID uint    `gorm:"not null;index" json:"billing_id"` // Foreign key to Billing
+	Type      string  `gorm:"type:varchar(100);not null" json:"type"`
+	Amount    float64 `gorm:"not null" json:"amount"`
+	Notes     string  `gorm:"type:text" json:"notes"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Relationship
+	Billing Billing `gorm:"foreignKey:BillingID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"billing"`
+}
+
 type BillingItemCoreData struct {
 	ID           uint        `json:"id"`
 	Product      ProductCore `json:"product"`
