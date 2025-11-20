@@ -56,7 +56,7 @@ func (r *ProductStockRepo) GetProductStockWithRent(ctx context.Context, warehous
 		Joins(fmt.Sprintf("JOIN %s AS s ON p.supplier_id = s.id", supplierTable)).
 		Joins(fmt.Sprintf("JOIN %s AS w ON b.warehouse_id = w.id", warehouseTable)).
 		Joins(fmt.Sprintf("JOIN %s AS rr ON w.rent_config_id = rr.id", rentRateTable)).
-		Where("b.warehouse_id = ?", warehouseId). // 🔥 Added warehouse filter  
+		Where("b.warehouse_id = ?", warehouseId). // 🔥 Added warehouse filter
 		Find(&entries).Error
 
 	if err != nil {
@@ -116,7 +116,6 @@ func (r *ProductStockRepo) GetProductStockWithRent(ctx context.Context, warehous
 	return results, nil
 }
 
-
 // GetAllproducts aggregates product stock and related details
 func (r *ProductStockRepo) GetAllproducts(ctx context.Context, warehouseId uint) ([]models.BasicProductStockView, error) {
 	var results []models.BasicProductStockView
@@ -175,7 +174,6 @@ func (r *ProductStockRepo) GetAllproducts(ctx context.Context, warehouseId uint)
 	return results, nil
 }
 
-
 func (r *ProductStockRepo) GetAllStockProductData(ctx context.Context, warehouseId uint) ([]models.StockSearchData, error) {
 	db := dbconn.DB.WithContext(ctx)
 	ns := db.NamingStrategy
@@ -203,7 +201,7 @@ func (r *ProductStockRepo) GetAllStockProductData(ctx context.Context, warehouse
 	var rows []rawRow
 
 	// MAIN QUERY WITH WAREHOUSE FILTER ADDED
-	err := db.Table(ns.TableName("BatchProductEntry") + " AS be").
+	err := db.Table(ns.TableName("BatchProductEntry")+" AS be").
 		Select(`
 			p.id AS product_id,
 			p.name AS product_name,
@@ -223,21 +221,21 @@ func (r *ProductStockRepo) GetAllStockProductData(ctx context.Context, warehouse
 			COALESCE(SUM(pf.net_profit), 0) AS net_profit_amt,
 			COALESCE(SUM(bl.other_expenses / NULLIF(prod_count.cnt, 1)), 0) AS expense_amt
 		`).
-		Joins("JOIN " + ns.TableName("Product") + " AS p ON be.product_id = p.id").
-		Joins("JOIN " + ns.TableName("Supplier") + " AS s ON p.supplier_id = s.id").
-		Joins("JOIN " + ns.TableName("Batch") + " AS b ON be.batch_id = b.id").
-		Joins("JOIN " + ns.TableName("Warehouse") + " AS w ON b.warehouse_id = w.id").
-		Joins("LEFT JOIN " + ns.TableName("BillingItem") + " AS bi ON bi.batch_id = b.id AND bi.product_id = p.id").
-		Joins("LEFT JOIN " + ns.TableName("Billing") + " AS bl ON bl.id = bi.billing_id").
-		Joins("LEFT JOIN " + ns.TableName("Profit") + " AS pf ON pf.product_id = p.id AND pf.batch_id = b.id").
+		Joins("JOIN "+ns.TableName("Product")+" AS p ON be.product_id = p.id").
+		Joins("JOIN "+ns.TableName("Supplier")+" AS s ON p.supplier_id = s.id").
+		Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
+		Joins("JOIN "+ns.TableName("Warehouse")+" AS w ON b.warehouse_id = w.id").
+		Joins("LEFT JOIN "+ns.TableName("BillingItem")+" AS bi ON bi.batch_id = b.id AND bi.product_id = p.id").
+		Joins("LEFT JOIN "+ns.TableName("Billing")+" AS bl ON bl.id = bi.billing_id").
+		Joins("LEFT JOIN "+ns.TableName("Profit")+" AS pf ON pf.product_id = p.id AND pf.batch_id = b.id").
 		Joins(`
 			LEFT JOIN (
 				SELECT billing_id, COUNT(DISTINCT product_id) AS cnt
-				FROM ` + ns.TableName("BillingItem") + `
+				FROM `+ns.TableName("BillingItem")+`
 				GROUP BY billing_id
 			) AS prod_count ON prod_count.billing_id = bl.id
 		`).
-		Where("b.warehouse_id = ?", warehouseId).                       // 🔥 Added missing warehouse filter
+		Where("b.warehouse_id = ?", warehouseId). // 🔥 Added missing warehouse filter
 		Group(`
 			p.id, p.name, s.name, p.category, p.storage_area,
 			b.warehouse_id, w.name, be.batch_id
@@ -302,39 +300,38 @@ func (r *ProductStockRepo) GetAllStockProductData(ctx context.Context, warehouse
 	return result, nil
 }
 
-
-func (r *ProductStockRepo) GetStockProductData(ctx context.Context, productId uint) (models.StockSearchData, error) {
+func (r *ProductStockRepo) GetStockProductData(ctx context.Context, productId, warehouseId uint) (models.StockSearchData, error) {
 	db := dbconn.DB.WithContext(ctx)
 	ns := db.NamingStrategy
 
 	type rawRow struct {
 		ProductID      uint
-        ProductName    string
-        SupplierName   string
-        Category       string
-        StorageArea    float64
-        WarehouseID    uint
-        WarehouseName  string
-        RentPerSqft    float64
-        BatchID        uint
-        BatchCreatedAt time.Time
+		ProductName    string
+		SupplierName   string
+		Category       string
+		StorageArea    float64
+		WarehouseID    uint
+		WarehouseName  string
+		RentPerSqft    float64
+		BatchID        uint
+		BatchCreatedAt time.Time
 
-        OnBoardCount   int
-        OffBoardCount  int
-        InStockCount   int
+		OnBoardCount  int
+		OffBoardCount int
+		InStockCount  int
 
-        OnBoardingAmt  float64
-        OffBoardingAmt float64
-        InStockAmt     float64
-        ProfitAmt      float64
-        NetProfitAmt   float64
-        ExpenseAmt     float64
+		OnBoardingAmt  float64
+		OffBoardingAmt float64
+		InStockAmt     float64
+		ProfitAmt      float64
+		NetProfitAmt   float64
+		ExpenseAmt     float64
 	}
 
 	var rows []rawRow
 
 	// -------------------------------------------------------------
-	// 🧠 Query all batches of a single product with aggregated info
+	// 🧠 Query all batches of a product for a specific warehouse
 	// -------------------------------------------------------------
 	err := db.Table(ns.TableName("BatchProductEntry") + " AS be").
 		Select(`
@@ -361,8 +358,7 @@ func (r *ProductStockRepo) GetStockProductData(ctx context.Context, productId ui
 
 		    COALESCE(SUM(pf.profit), 0) AS profit_amt,
 		    COALESCE(SUM(pf.net_profit), 0) AS net_profit_amt,
-
-		    COALESCE(SUM(bl.other_expenses / NULLIF(prod_count.cnt, 1)), 0) AS expense_amt
+		    COALESCE(SUM(bi.storage_cost), 0) AS expense_amt
 		`).
 		Joins("JOIN "+ns.TableName("Product")+" AS p ON be.product_id = p.id").
 		Joins("JOIN "+ns.TableName("Supplier")+" AS s ON p.supplier_id = s.id").
@@ -370,16 +366,8 @@ func (r *ProductStockRepo) GetStockProductData(ctx context.Context, productId ui
 		Joins("JOIN "+ns.TableName("Warehouse")+" AS w ON b.warehouse_id = w.id").
 		Joins("JOIN "+ns.TableName("RentRate")+" AS rr ON w.rent_config_id = rr.id").
 		Joins("LEFT JOIN "+ns.TableName("BillingItem")+" AS bi ON bi.batch_id = b.id AND bi.product_id = p.id").
-		Joins("LEFT JOIN "+ns.TableName("Billing")+" AS bl ON bl.id = bi.billing_id").
-		Joins("LEFT JOIN "+ns.TableName("Profit")+" AS pf ON pf.product_id = p.id AND pf.batch_id = b.id").
-		Joins(`
-			LEFT JOIN (
-			    SELECT billing_id, COUNT(DISTINCT product_id) AS cnt
-			    FROM ` + ns.TableName("BillingItem") + `
-			    GROUP BY billing_id
-			) AS prod_count ON prod_count.billing_id = bl.id
-		`).
-		Where("p.id = ?", productId).
+		Joins("LEFT JOIN "+ns.TableName("Profit")+" AS pf ON pf.batch_id = b.id AND pf.product_id = p.id").
+		Where("p.id = ? AND b.warehouse_id = ?", productId, warehouseId).
 		Group(`
 			p.id, p.name, s.name, p.category, p.storage_area,
 			b.warehouse_id, w.name, rr.rate_per_sqft,
@@ -391,9 +379,8 @@ func (r *ProductStockRepo) GetStockProductData(ctx context.Context, productId ui
 	if err != nil {
 		return models.StockSearchData{}, fmt.Errorf("failed to fetch stock data for product: %w", err)
 	}
-
 	if len(rows) == 0 {
-		return models.StockSearchData{}, fmt.Errorf("no stock data found for product ID %d", productId)
+		return models.StockSearchData{}, fmt.Errorf("no stock data found for product %d", productId)
 	}
 
 	// -------------------------------------------------------------
@@ -411,11 +398,18 @@ func (r *ProductStockRepo) GetStockProductData(ctx context.Context, productId ui
 	}
 
 	// -------------------------------------------------------------
-	// 📦 Loop each batch and compute Rent + filter zero-stock
+	// AGGREGATORS for Final Output
+	// -------------------------------------------------------------
+	var totalOnboard, totalOffboard, totalInStock int
+	var totOnboardAmt, totOffboardAmt, totInStockAmt float64
+	var totProfit, totNetProfit, totExpense float64
+
+	// -------------------------------------------------------------
+	// 📦 Loop each batch and compute Rent + filter zero-stock batches
 	// -------------------------------------------------------------
 	for _, r := range rows {
 
-		// ❌ Skip batches with 0 stock
+		// ❌ Skip batches where no stock exists anymore
 		if r.InStockCount == 0 {
 			continue
 		}
@@ -426,10 +420,10 @@ func (r *ProductStockRepo) GetStockProductData(ctx context.Context, productId ui
 			duration = 1
 		}
 
-		// 💰 RentAmount = storage_area * rent_per_sqft * duration * quantity
+		// 💰 RentAmount = storage_area × rate × duration × quantity
 		rentAmount := r.StorageArea * r.RentPerSqft * float64(duration) * float64(r.InStockCount)
 
-		// Add structured batch entry
+		// Append batch-specific stock data
 		result.StockData = append(result.StockData, models.StockData{
 			BatchID: r.BatchID,
 			StockCount: models.Stock{
@@ -447,9 +441,141 @@ func (r *ProductStockRepo) GetStockProductData(ctx context.Context, productId ui
 			},
 			RentAmount: rentAmount,
 		})
+
+		// Aggregate totals
+		totalOnboard += r.OnBoardCount
+		totalOffboard += r.OffBoardCount
+		totalInStock += r.InStockCount
+
+		totOnboardAmt += r.OnBoardingAmt
+		totOffboardAmt += r.OffBoardingAmt
+		totInStockAmt += r.InStockAmt
+
+		totProfit += r.ProfitAmt
+		totNetProfit += r.NetProfitAmt
+		totExpense += r.ExpenseAmt
 	}
 
-	log.Printf("📦 Retrieved stock data for product %d with %d batches", productId, len(result.StockData))
+	// -------------------------------------------------------------
+	// 🧾 Fill Final Totals into response
+	// -------------------------------------------------------------
+	result.StockCount = models.Stock{
+		OnBoardCount:  totalOnboard,
+		OffBoardCount: totalOffboard,
+		InStockCount:  totalInStock,
+	}
+
+	result.TotalAmounts = models.TotalAmounts{
+		OnBoardingAmount:  totOnboardAmt,
+		OffBoardingAmount: totOffboardAmt,
+		InStockAmount:     totInStockAmt,
+		ProfitAmount:      totProfit,
+		NetProfitAmount:   totNetProfit,
+		ExpenseAmount:     totExpense,
+	}
+
 	return result, nil
 }
 
+
+func (r *ProductStockRepo) GetAllProductStockDatas(ctx context.Context, warehouseId uint) ([]models.ProductStockDatas, error) {
+	db := dbconn.DB.WithContext(ctx)
+	ns := db.NamingStrategy
+
+	type rawRow struct {
+		ProductID    uint
+		ProductName  string
+		SupplierName string
+		Category     string
+		StorageArea  float64
+
+		OnBoardCount  int
+		OffBoardCount int
+		InStockCount  int
+
+		OnBoardingAmt  float64
+		OffBoardingAmt float64
+		InStockAmt     float64
+		ProfitAmt      float64
+		NetProfitAmt   float64
+		ExpenseAmt     float64
+	}
+
+	var rows []rawRow
+
+	// -------------------------
+	// 🧠 Main Query
+	// -------------------------
+	err := db.Table(ns.TableName("BatchProductEntry")+" AS be").
+		Select(`
+			p.id AS product_id,
+			p.name AS product_name,
+			s.name AS supplier_name,
+			p.category,
+			p.storage_area,
+
+			COALESCE(SUM(be.quantity), 0) AS on_board_count,
+			COALESCE(SUM(be.stock_quantity), 0) AS in_stock_count,
+			COALESCE(SUM(bi.offboard_qty), 0) AS off_board_count,
+
+			COALESCE(SUM(be.billing_price * be.quantity), 0) AS on_boarding_amt,
+			COALESCE(SUM(bi.selling_price * bi.offboard_qty), 0) AS off_boarding_amt,
+			COALESCE(SUM(be.billing_price * be.stock_quantity), 0) AS in_stock_amt,
+
+			COALESCE(SUM(pf.profit), 0) AS profit_amt,
+			COALESCE(SUM(pf.net_profit), 0) AS net_profit_amt,
+
+			COALESCE(SUM(bi.storage_cost), 0) AS expense_amt
+		`).
+		Joins("JOIN "+ns.TableName("Product")+" AS p ON p.id = be.product_id").
+		Joins("JOIN "+ns.TableName("Supplier")+" AS s ON s.id = p.supplier_id").
+		Joins("JOIN "+ns.TableName("Batch")+" AS b ON b.id = be.batch_id").
+		Joins("LEFT JOIN "+ns.TableName("BillingItem")+" AS bi ON bi.batch_id = b.id AND bi.product_id = p.id").
+		Joins("LEFT JOIN "+ns.TableName("Profit")+" AS pf ON pf.product_id = p.id AND pf.batch_id = b.id").
+		Where("b.warehouse_id = ?", warehouseId).
+		Group(`
+			p.id, p.name, s.name, p.category, p.storage_area
+		`).
+		Order("p.name ASC").
+		Scan(&rows).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch product stock data: %w", err)
+	}
+
+	if len(rows) == 0 {
+		return []models.ProductStockDatas{}, nil
+	}
+
+	// -------------------------
+	// 🧩 Map to final struct
+	// -------------------------
+	var result []models.ProductStockDatas
+
+	for _, r := range rows {
+		result = append(result, models.ProductStockDatas{
+			ProductID:    r.ProductID,
+			ProductName:  r.ProductName,
+			SupplierName: r.SupplierName,
+			Category:     r.Category,
+			StorageArea:  r.StorageArea,
+
+			TotalAmounts: models.TotalAmounts{
+				OnBoardingAmount:  r.OnBoardingAmt,
+				OffBoardingAmount: r.OffBoardingAmt,
+				InStockAmount:     r.InStockAmt,
+				ProfitAmount:      r.ProfitAmt,
+				NetProfitAmount:   r.NetProfitAmt,
+				ExpenseAmount:     r.ExpenseAmt,
+			},
+
+			StokCount: models.Stock{
+				OnBoardCount:  r.OnBoardCount,
+				OffBoardCount: r.OffBoardCount,
+				InStockCount:  r.InStockCount,
+			},
+		})
+	}
+
+	return result, nil
+}

@@ -56,14 +56,16 @@ type BasicProductStockView struct {
 }
 
 type StockSearchData struct {
-	ProductID     uint        `json:"product_id"`
-	ProductName   string      `json:"product_name"`
-	SupplierName  string      `json:"supplier_name"`
-	Category      string      `json:"category"`
-	StorageArea   float64     ` json:"storage_area"`
-	WarehouseID   uint        `json:"warehouse_id"`
-	WarehouseName string      `json:"warehouse_name"`
-	StockData     []StockData `json:"stock_data"`
+	ProductID     uint         `json:"product_id"`
+	ProductName   string       `json:"product_name"`
+	SupplierName  string       `json:"supplier_name"`
+	Category      string       `json:"category"`
+	StorageArea   float64      ` json:"storage_area"`
+	WarehouseID   uint         `json:"warehouse_id"`
+	WarehouseName string       `json:"warehouse_name"`
+	StockData     []StockData  `json:"stock_data"`
+	TotalAmounts  TotalAmounts ` json:"total_amounts"`
+	StockCount    Stock        ` json:"total_stock_count"`
 }
 
 type StockData struct {
@@ -71,4 +73,14 @@ type StockData struct {
 	StockCount Stock        `json:"stock_count"`
 	Amounts    TotalAmounts `json:"amounts"`
 	RentAmount float64      `json:"rent_amount"`
+}
+
+type ProductStockDatas struct {
+	ProductID    uint         `json:"product_id"`
+	ProductName  string       `json:"product_name"`
+	SupplierName string       `json:"supplier_name"`
+	Category     string       `json:"category"`
+	StorageArea  float64      ` json:"storage_area"`
+	TotalAmounts TotalAmounts ` json:"total_amounts"`
+	StokCount    Stock        ` json:"stock_count"`
 }

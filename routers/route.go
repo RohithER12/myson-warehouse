@@ -7,7 +7,10 @@ import (
 )
 
 func SetupRoutes(r *gin.Engine) {
-	
+
+	// gzip
+	r.Use(middleware.GzipMiddleware())
+
 	// Public routes
 	UserRoutes(r)
 	PingRoutes(r)
@@ -23,6 +26,7 @@ func SetupRoutes(r *gin.Engine) {
 	registerAdminRoutes(api)
 }
 
+// common routes
 func registerEmployeeAndAdminRoutes(r *gin.RouterGroup) {
 	group := r.Group("/")
 	group.Use(middleware.RequireRoles("employee", "admin"))
@@ -35,6 +39,7 @@ func registerEmployeeAndAdminRoutes(r *gin.RouterGroup) {
 	RegisterStockRoutes(group)
 }
 
+// admin related routes
 func registerAdminRoutes(r *gin.RouterGroup) {
 	admin := r.Group("/")
 	admin.Use(middleware.RequireRoles("admin"))

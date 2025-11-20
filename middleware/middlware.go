@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"compress/gzip"
 	"net/http"
 	"strings"
 	"warehouse/helper"
@@ -46,6 +47,37 @@ func RequireRoles(allowed ...string) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "message": "insufficient permissions"})
 			return
 		}
+		c.Next()
+	}
+}
+
+type gzipWriter struct {
+	gin.ResponseWriter
+	gw *gzip.Writer
+}
+
+func (g *gzipWriter) Write(data []byte) (int, error) {
+	return g.gw.Write(data)
+}
+
+func GzipMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+
+		// Only gzip if client supports it
+		if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
+			c.Next()
+			return
+		}
+
+		// Set response headers
+		c.Header("Content-Encoding", "gzip")
+		c.Header("Vary", "Accept-Encoding")
+
+		gz := gzip.NewWriter(c.Writer)
+		defer gz.Close()
+
+		c.Writer = &gzipWriter{ResponseWriter: c.Writer, gw: gz}
+
 		c.Next()
 	}
 }
