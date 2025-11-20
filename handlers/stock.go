@@ -63,8 +63,40 @@ func GetAllProductStockHandler(c *gin.Context) {
 		"data":    stock,
 	})
 }
+func GetAllProductStockDatasHandler(c *gin.Context) {
+	warehouseIdAny, exists := c.Get("warehouse_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "warehouse_id not found in token"})
+		return
+	}
+	warehouseId, ok := warehouseIdAny.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid warehouse_id type"})
+		return
+	}
+	stock, err := productStockRepo.GetAllProductStockDatas(context.Background(), warehouseId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: stock})
+}
 
 func SearchStockProductData(c *gin.Context) {
+	warehouseIdAny, exists := c.Get("warehouse_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "warehouse_id not found in token"})
+		return
+	}
+	warehouseId, ok := warehouseIdAny.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "invalid warehouse_id type"})
+		return
+	}
 
 	idStr := c.Param("product_id")
 	productId, err := strconv.Atoi(idStr)
@@ -72,7 +104,7 @@ func SearchStockProductData(c *gin.Context) {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Message: err.Error()})
 		return
 	}
-	stock, err := productStockRepo.GetStockProductData(context.Background(), uint(productId))
+	stock, err := productStockRepo.GetStockProductData(context.Background(), uint(productId),warehouseId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
