@@ -9,7 +9,7 @@ import (
 func SetupRoutes(r *gin.Engine) {
 
 	// gzip
-	r.Use(middleware.GzipMiddleware())
+	r.Use(middleware.CompressionMiddleware())
 
 	// Public routes
 	UserRoutes(r)
