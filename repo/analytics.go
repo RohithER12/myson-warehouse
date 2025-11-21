@@ -18,14 +18,259 @@ func NewAnalyticsRepo() *AnalyticsRepo {
 }
 
 // 🔍 Get Analytics Data
+// func (r *AnalyticsRepo) GetAnalytics(ctx context.Context, warehouseID uint, duration string) (*models.ProductAnalytics, error) {
+// 	db := dbconn.DB.WithContext(ctx)
+// 	ns := db.NamingStrategy
+
+// 	var analytics models.ProductAnalytics
+
+// 	// 🕒 Duration filter (used for flow metrics only)
+// 	startDate := time.Now().AddDate(0, 0, -7) // default last 7 days
+// 	switch duration {
+// 	case "lastmonth":
+// 		startDate = time.Now().AddDate(0, -1, 0)
+// 	case "lastyear":
+// 		startDate = time.Now().AddDate(-1, 0, 0)
+// 	}
+
+// 	// ===================================================
+// 	// 📊 TOTAL AMOUNTS (flow metrics use startDate)
+// 	// ===================================================
+// 	db.Table(ns.TableName("BatchProductEntry")+" AS be").
+// 		Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
+// 		Where("b.warehouse_id = ? AND be.created_at >= ?", warehouseID, startDate).
+// 		Select("COALESCE(SUM(be.billing_price * be.quantity), 0)").
+// 		Scan(&analytics.TotalAmounts.OnBoardingAmount)
+
+// 	db.Table(ns.TableName("BillingItem")+" AS bi").
+// 		Joins("JOIN "+ns.TableName("Batch")+" AS b ON bi.batch_id = b.id").
+// 		Where("b.warehouse_id = ? AND bi.created_at >= ?", warehouseID, startDate).
+// 		Select("COALESCE(SUM(bi.selling_price * bi.offboard_qty), 0)").
+// 		Scan(&analytics.TotalAmounts.OffBoardingAmount)
+
+// 	// InStockAmount for totals — use the snapshot of stock entries created/updated since startDate (keeps consistency with flow), but you can remove the created_at filter if you want absolute current stock value.
+// 	db.Table(ns.TableName("BatchProductEntry")+" AS be").
+// 		Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
+// 		Where("b.warehouse_id = ? AND be.created_at >= ?", warehouseID, startDate).
+// 		Select("COALESCE(SUM(be.billing_price * be.stock_quantity), 0)").
+// 		Scan(&analytics.TotalAmounts.InStockAmount)
+
+// 	db.Table(ns.TableName("Profit")+" AS p").
+// 		Joins("JOIN "+ns.TableName("Batch")+" AS b ON p.batch_id = b.id").
+// 		Where("b.warehouse_id = ? AND p.created_at >= ?", warehouseID, startDate).
+// 		Select("COALESCE(SUM(p.profit), 0)").
+// 		Scan(&analytics.TotalAmounts.ProfitAmount)
+
+// 	db.Table(ns.TableName("Profit")+" AS p").
+// 		Joins("JOIN "+ns.TableName("Batch")+" AS b ON p.batch_id = b.id").
+// 		Where("b.warehouse_id = ? AND p.created_at >= ?", warehouseID, startDate).
+// 		Select("COALESCE(SUM(p.net_profit), 0)").
+// 		Scan(&analytics.TotalAmounts.NetProfitAmount)
+
+// 	db.Table(ns.TableName("Billing")+" AS bl").
+// 		Where("bl.created_at >= ?", startDate).
+// 		Select("COALESCE(SUM(bl.other_expenses + bl.total_rent), 0)").
+// 		Scan(&analytics.TotalAmounts.ExpenseAmount)
+
+// 	// ===================================================
+// 	// 🏭 GODOWN DATA
+// 	// ===================================================
+// 	var warehouse models.Warehouse
+// 	if err := db.Preload("RentConfig").First(&warehouse, warehouseID).Error; err != nil {
+// 		return nil, fmt.Errorf("warehouse not found: %w", err)
+// 	}
+
+// 	usedSpace := warehouse.TotalArea - warehouse.AvailableArea
+// 	usedPercent := 0.0
+// 	if warehouse.TotalArea > 0 {
+// 		usedPercent = (usedSpace / warehouse.TotalArea) * 100
+// 	}
+
+// 	analytics.GodownData = models.GodownData{
+// 		GodownID:            warehouse.ID,
+// 		GodownName:          warehouse.Name,
+// 		TotalSpace:          warehouse.TotalArea,
+// 		AvailableSpace:      warehouse.AvailableArea,
+// 		UsedSpace:           usedSpace,
+// 		UsedSpacePercentage: usedPercent,
+// 	}
+
+// 	// ===================================================
+// 	// 📦 PRODUCT-WISE ANALYTICS
+// 	// ===================================================
+// 	var products []models.Product
+// 	// use Model+Preload so Supplier is loaded correctly
+// 	if err := db.Model(&models.Product{}).Preload("Supplier").Find(&products).Error; err != nil {
+// 		return nil, fmt.Errorf("failed to fetch products: %w", err)
+// 	}
+
+// 	for _, p := range products {
+// 		var pdata models.ProductWiseData
+
+// 		// product info
+// 		pdata.ProductInfo = models.ProductData{
+// 			ID:          p.ID,
+// 			Name:        p.Name,
+// 			SupplierID:  p.SupplierID,
+// 			Supplier:    p.Supplier,
+// 			Category:    p.Category,
+// 			StorageArea: p.StorageArea,
+// 			CreatedAt:   p.CreatedAt,
+// 			UpdatedAt:   p.UpdatedAt,
+// 		}
+
+// 		// -----------------------
+// 		// Amounts (flow metrics use startDate)
+// 		// -----------------------
+// 		db.Table(ns.TableName("BatchProductEntry")+" AS be").
+// 			Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
+// 			Where("b.warehouse_id = ? AND be.product_id = ? AND be.created_at >= ?", warehouseID, p.ID, startDate).
+// 			Select("COALESCE(SUM(be.billing_price * be.quantity), 0)").
+// 			Scan(&pdata.Amounts.ProductOnBoardingAmount)
+
+// 		db.Table(ns.TableName("BillingItem")+" AS bi").
+// 			Joins("JOIN "+ns.TableName("Batch")+" AS b ON bi.batch_id = b.id").
+// 			Where("b.warehouse_id = ? AND bi.product_id = ? AND bi.created_at >= ?", warehouseID, p.ID, startDate).
+// 			Select("COALESCE(SUM(bi.selling_price * bi.offboard_qty), 0)").
+// 			Scan(&pdata.Amounts.ProductOffBoardingAmount)
+
+// 		// In-stock amount: use current stock snapshot (no created_at) so it reflects present inventory
+// 		db.Table(ns.TableName("BatchProductEntry")+" AS be").
+// 			Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
+// 			Where("b.warehouse_id = ? AND be.product_id = ? AND be.stock_quantity > 0", warehouseID, p.ID).
+// 			Select("COALESCE(SUM(be.billing_price * be.stock_quantity), 0)").
+// 			Scan(&pdata.Amounts.ProductInStockAmount)
+
+// 		// Profit sums (use startDate for flow profit)
+// 		var profitRes struct {
+// 			Profit    float64
+// 			NetProfit float64
+// 		}
+// 		db.Table(ns.TableName("Profit")+" AS pr").
+// 			Joins("JOIN "+ns.TableName("Batch")+" AS b ON pr.batch_id = b.id").
+// 			Where("b.warehouse_id = ? AND pr.product_id = ? AND pr.created_at >= ?", warehouseID, p.ID, startDate).
+// 			Select("COALESCE(SUM(pr.profit),0) AS profit, COALESCE(SUM(pr.net_profit),0) AS net_profit").
+// 			Scan(&profitRes)
+
+// 		pdata.Amounts.ProductProfitAmount = profitRes.Profit
+// 		pdata.Amounts.ProductNetProfitAmount = profitRes.NetProfit
+
+// 		// Expense: storage_cost + shared other_expenses (use startDate to keep consistent)
+// 		var productExpense float64
+// 		db.Raw(fmt.Sprintf(`
+// 			SELECT 
+// 				COALESCE(SUM(bi.storage_cost), 0) +
+// 				COALESCE(SUM(bl.other_expenses / NULLIF(prod_count.cnt, 0)), 0)
+// 			FROM %s AS bi
+// 			JOIN %s AS b ON bi.batch_id = b.id
+// 			JOIN %s AS bl ON bi.billing_id = bl.id
+// 			JOIN (
+// 				SELECT billing_id, COUNT(DISTINCT product_id) AS cnt
+// 				FROM %s
+// 				GROUP BY billing_id
+// 			) AS prod_count ON prod_count.billing_id = bl.id
+// 			WHERE b.warehouse_id = ? AND bi.product_id = ? AND bl.created_at >= ?;
+// 		`,
+// 			ns.TableName("BillingItem"),
+// 			ns.TableName("Batch"),
+// 			ns.TableName("Billing"),
+// 			ns.TableName("BillingItem")),
+// 			warehouseID, p.ID, startDate).Scan(&productExpense)
+
+// 		pdata.Amounts.ProductExpenseAmount = productExpense
+
+// 		// -----------------------
+// 		// Stock counts (current state)
+// 		// -----------------------
+// 		var stockRes struct {
+// 			OnBoard  int
+// 			InStock  int
+// 			OffBoard int
+// 		}
+
+// 		db.Table(ns.TableName("BatchProductEntry")+" AS be").
+// 			Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
+// 			Where("b.warehouse_id = ? AND be.product_id = ?", warehouseID, p.ID).
+// 			Select("COALESCE(SUM(be.quantity),0) AS on_board, COALESCE(SUM(be.stock_quantity),0) AS in_stock").
+// 			Scan(&stockRes)
+
+// 		db.Table(ns.TableName("BillingItem")+" AS bi").
+// 			Joins("JOIN "+ns.TableName("Batch")+" AS b ON bi.batch_id = b.id").
+// 			Where("b.warehouse_id = ? AND bi.product_id = ?", warehouseID, p.ID).
+// 			Select("COALESCE(SUM(bi.offboard_qty),0) AS off_board").
+// 			Scan(&stockRes.OffBoard)
+
+// 		pdata.Stock.OnBoardCount = stockRes.OnBoard
+// 		pdata.Stock.InStockCount = stockRes.InStock
+// 		pdata.Stock.OffBoardCount = stockRes.OffBoard
+
+// 		// -----------------------
+// 		// Fast-moving flag (simple ratio)
+// 		// -----------------------
+// 		totalOn := float64(pdata.Stock.OnBoardCount)
+// 		totalOff := float64(pdata.Stock.OffBoardCount)
+// 		pdata.IsFastMoving = totalOn > 0 && (totalOff/totalOn) >= 0.7
+
+// 		analytics.ProductsData = append(analytics.ProductsData, pdata)
+// 	}
+
+// 	// ===================================================
+// 	// 🏆 TOP 10 PRODUCTS (by off/on ratio)
+// 	// ===================================================
+// 	type rankItem struct {
+// 		Product models.ProductWiseData
+// 		Score   float64
+// 	}
+
+// 	var ranks []rankItem
+// 	for _, p := range analytics.ProductsData {
+// 		on := float64(p.Stock.OnBoardCount)
+// 		off := float64(p.Stock.OffBoardCount)
+// 		if on <= 0 {
+// 			// skip products with no onboarding (can't compute ratio sensibly)
+// 			continue
+// 		}
+// 		score := off / on // higher ratio -> faster moving
+// 		ranks = append(ranks, rankItem{Product: p, Score: score})
+// 	}
+
+// 	// sort descending
+// 	sort.Slice(ranks, func(i, j int) bool {
+// 		return ranks[i].Score > ranks[j].Score
+// 	})
+
+// 	// take top 10 (or fewer)
+// 	limit := 10
+// 	if len(ranks) < limit {
+// 		limit = len(ranks)
+// 	}
+// 	analytics.TopTenProducts = make([]models.ProductCount, 0, limit)
+// 	for i := 0; i < limit; i++ {
+// 		analytics.TopTenProducts = append(analytics.TopTenProducts, models.ProductCount{
+// 			ProductInfo: ranks[i].Product.ProductInfo,
+// 			Stock:       ranks[i].Product.Stock,
+// 		})
+// 	}
+
+// 	log.Printf("📈 Analytics generated for Warehouse %d (duration=%s) — products=%d top=%d",
+// 		warehouseID, duration, len(analytics.ProductsData), len(analytics.TopTenProducts))
+
+// 	return &analytics, nil
+// }
+
+
+
+
 func (r *AnalyticsRepo) GetAnalytics(ctx context.Context, warehouseID uint, duration string) (*models.ProductAnalytics, error) {
 	db := dbconn.DB.WithContext(ctx)
 	ns := db.NamingStrategy
 
 	var analytics models.ProductAnalytics
 
-	// 🕒 Duration filter (used for flow metrics only)
-	startDate := time.Now().AddDate(0, 0, -7) // default last 7 days
+	// --------------------------
+	// 📅 Duration Filter
+	// --------------------------
+	startDate := time.Now().AddDate(0, 0, -7)
 	switch duration {
 	case "lastmonth":
 		startDate = time.Now().AddDate(0, -1, 0)
@@ -34,7 +279,7 @@ func (r *AnalyticsRepo) GetAnalytics(ctx context.Context, warehouseID uint, dura
 	}
 
 	// ===================================================
-	// 📊 TOTAL AMOUNTS (flow metrics use startDate)
+	// 📊 TOTAL AMOUNTS
 	// ===================================================
 	db.Table(ns.TableName("BatchProductEntry")+" AS be").
 		Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
@@ -48,10 +293,9 @@ func (r *AnalyticsRepo) GetAnalytics(ctx context.Context, warehouseID uint, dura
 		Select("COALESCE(SUM(bi.selling_price * bi.offboard_qty), 0)").
 		Scan(&analytics.TotalAmounts.OffBoardingAmount)
 
-	// InStockAmount for totals — use the snapshot of stock entries created/updated since startDate (keeps consistency with flow), but you can remove the created_at filter if you want absolute current stock value.
 	db.Table(ns.TableName("BatchProductEntry")+" AS be").
 		Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
-		Where("b.warehouse_id = ? AND be.created_at >= ?", warehouseID, startDate).
+		Where("b.warehouse_id = ? AND be.stock_quantity > 0", warehouseID).
 		Select("COALESCE(SUM(be.billing_price * be.stock_quantity), 0)").
 		Scan(&analytics.TotalAmounts.InStockAmount)
 
@@ -67,6 +311,7 @@ func (r *AnalyticsRepo) GetAnalytics(ctx context.Context, warehouseID uint, dura
 		Select("COALESCE(SUM(p.net_profit), 0)").
 		Scan(&analytics.TotalAmounts.NetProfitAmount)
 
+	// Expense = Storage + OtherExpenses
 	db.Table(ns.TableName("Billing")+" AS bl").
 		Where("bl.created_at >= ?", startDate).
 		Select("COALESCE(SUM(bl.other_expenses + bl.total_rent), 0)").
@@ -96,164 +341,92 @@ func (r *AnalyticsRepo) GetAnalytics(ctx context.Context, warehouseID uint, dura
 	}
 
 	// ===================================================
-	// 📦 PRODUCT-WISE ANALYTICS
+	// 🏆 TOP TEN PRODUCTS
 	// ===================================================
-	var products []models.Product
-	// use Model+Preload so Supplier is loaded correctly
-	if err := db.Model(&models.Product{}).Preload("Supplier").Find(&products).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch products: %w", err)
+	type row struct {
+		ProductID   uint
+		OnBoard     int
+		OffBoard    int
+		Name        string
+		Category    string
+		StorageArea float64
+		SupplierID  uint
+		Supplier    string
 	}
 
-	for _, p := range products {
-		var pdata models.ProductWiseData
+	var rows []row
 
-		// product info
-		pdata.ProductInfo = models.ProductData{
-			ID:          p.ID,
-			Name:        p.Name,
-			SupplierID:  p.SupplierID,
-			Supplier:    p.Supplier,
-			Category:    p.Category,
-			StorageArea: p.StorageArea,
-			CreatedAt:   p.CreatedAt,
-			UpdatedAt:   p.UpdatedAt,
-		}
+	// Build compact query to compute totals per product
+	err := db.Table(ns.TableName("Product")+" AS p").
+		Select(`
+		  p.id AS product_id,
+		  p.name,
+		  p.category,
+		  p.storage_area,
+		  s.id AS supplier_id,
+		  s.name AS supplier,
+		  COALESCE(SUM(be.quantity),0) AS on_board,
+		  COALESCE(SUM(bi.offboard_qty),0) AS off_board
+		`).
+		Joins("JOIN "+ns.TableName("Supplier")+" AS s ON p.supplier_id = s.id").
+		Joins("LEFT JOIN "+ns.TableName("BatchProductEntry")+" AS be ON be.product_id = p.id").
+		Joins("LEFT JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
+		Joins("LEFT JOIN "+ns.TableName("BillingItem")+" AS bi ON bi.product_id = p.id").
+		Where("b.warehouse_id = ?", warehouseID).
+		Group("p.id, p.name, p.category, p.storage_area, s.id, s.name").
+		Scan(&rows).Error
 
-		// -----------------------
-		// Amounts (flow metrics use startDate)
-		// -----------------------
-		db.Table(ns.TableName("BatchProductEntry")+" AS be").
-			Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
-			Where("b.warehouse_id = ? AND be.product_id = ? AND be.created_at >= ?", warehouseID, p.ID, startDate).
-			Select("COALESCE(SUM(be.billing_price * be.quantity), 0)").
-			Scan(&pdata.Amounts.ProductOnBoardingAmount)
-
-		db.Table(ns.TableName("BillingItem")+" AS bi").
-			Joins("JOIN "+ns.TableName("Batch")+" AS b ON bi.batch_id = b.id").
-			Where("b.warehouse_id = ? AND bi.product_id = ? AND bi.created_at >= ?", warehouseID, p.ID, startDate).
-			Select("COALESCE(SUM(bi.selling_price * bi.offboard_qty), 0)").
-			Scan(&pdata.Amounts.ProductOffBoardingAmount)
-
-		// In-stock amount: use current stock snapshot (no created_at) so it reflects present inventory
-		db.Table(ns.TableName("BatchProductEntry")+" AS be").
-			Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
-			Where("b.warehouse_id = ? AND be.product_id = ? AND be.stock_quantity > 0", warehouseID, p.ID).
-			Select("COALESCE(SUM(be.billing_price * be.stock_quantity), 0)").
-			Scan(&pdata.Amounts.ProductInStockAmount)
-
-		// Profit sums (use startDate for flow profit)
-		var profitRes struct {
-			Profit    float64
-			NetProfit float64
-		}
-		db.Table(ns.TableName("Profit")+" AS pr").
-			Joins("JOIN "+ns.TableName("Batch")+" AS b ON pr.batch_id = b.id").
-			Where("b.warehouse_id = ? AND pr.product_id = ? AND pr.created_at >= ?", warehouseID, p.ID, startDate).
-			Select("COALESCE(SUM(pr.profit),0) AS profit, COALESCE(SUM(pr.net_profit),0) AS net_profit").
-			Scan(&profitRes)
-
-		pdata.Amounts.ProductProfitAmount = profitRes.Profit
-		pdata.Amounts.ProductNetProfitAmount = profitRes.NetProfit
-
-		// Expense: storage_cost + shared other_expenses (use startDate to keep consistent)
-		var productExpense float64
-		db.Raw(fmt.Sprintf(`
-			SELECT 
-				COALESCE(SUM(bi.storage_cost), 0) +
-				COALESCE(SUM(bl.other_expenses / NULLIF(prod_count.cnt, 0)), 0)
-			FROM %s AS bi
-			JOIN %s AS b ON bi.batch_id = b.id
-			JOIN %s AS bl ON bi.billing_id = bl.id
-			JOIN (
-				SELECT billing_id, COUNT(DISTINCT product_id) AS cnt
-				FROM %s
-				GROUP BY billing_id
-			) AS prod_count ON prod_count.billing_id = bl.id
-			WHERE b.warehouse_id = ? AND bi.product_id = ? AND bl.created_at >= ?;
-		`,
-			ns.TableName("BillingItem"),
-			ns.TableName("Batch"),
-			ns.TableName("Billing"),
-			ns.TableName("BillingItem")),
-			warehouseID, p.ID, startDate).Scan(&productExpense)
-
-		pdata.Amounts.ProductExpenseAmount = productExpense
-
-		// -----------------------
-		// Stock counts (current state)
-		// -----------------------
-		var stockRes struct {
-			OnBoard  int
-			InStock  int
-			OffBoard int
-		}
-
-		db.Table(ns.TableName("BatchProductEntry")+" AS be").
-			Joins("JOIN "+ns.TableName("Batch")+" AS b ON be.batch_id = b.id").
-			Where("b.warehouse_id = ? AND be.product_id = ?", warehouseID, p.ID).
-			Select("COALESCE(SUM(be.quantity),0) AS on_board, COALESCE(SUM(be.stock_quantity),0) AS in_stock").
-			Scan(&stockRes)
-
-		db.Table(ns.TableName("BillingItem")+" AS bi").
-			Joins("JOIN "+ns.TableName("Batch")+" AS b ON bi.batch_id = b.id").
-			Where("b.warehouse_id = ? AND bi.product_id = ?", warehouseID, p.ID).
-			Select("COALESCE(SUM(bi.offboard_qty),0) AS off_board").
-			Scan(&stockRes.OffBoard)
-
-		pdata.Stock.OnBoardCount = stockRes.OnBoard
-		pdata.Stock.InStockCount = stockRes.InStock
-		pdata.Stock.OffBoardCount = stockRes.OffBoard
-
-		// -----------------------
-		// Fast-moving flag (simple ratio)
-		// -----------------------
-		totalOn := float64(pdata.Stock.OnBoardCount)
-		totalOff := float64(pdata.Stock.OffBoardCount)
-		pdata.IsFastMoving = totalOn > 0 && (totalOff/totalOn) >= 0.7
-
-		analytics.ProductsData = append(analytics.ProductsData, pdata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute top products: %w", err)
 	}
 
-	// ===================================================
-	// 🏆 TOP 10 PRODUCTS (by off/on ratio)
-	// ===================================================
+	// Rank by offboard/onboard ratio
 	type rankItem struct {
-		Product models.ProductWiseData
-		Score   float64
+		Item  row
+		Score float64
 	}
 
 	var ranks []rankItem
-	for _, p := range analytics.ProductsData {
-		on := float64(p.Stock.OnBoardCount)
-		off := float64(p.Stock.OffBoardCount)
-		if on <= 0 {
-			// skip products with no onboarding (can't compute ratio sensibly)
+
+	for _, r := range rows {
+		if r.OnBoard == 0 {
 			continue
 		}
-		score := off / on // higher ratio -> faster moving
-		ranks = append(ranks, rankItem{Product: p, Score: score})
+
+		score := float64(r.OffBoard) / float64(r.OnBoard)
+		ranks = append(ranks, rankItem{Item: r, Score: score})
 	}
 
-	// sort descending
+	// Sort descending
 	sort.Slice(ranks, func(i, j int) bool {
 		return ranks[i].Score > ranks[j].Score
 	})
 
-	// take top 10 (or fewer)
 	limit := 10
 	if len(ranks) < limit {
 		limit = len(ranks)
 	}
-	analytics.TopTenProducts = make([]models.ProductCount, 0, limit)
+
 	for i := 0; i < limit; i++ {
+		item := ranks[i].Item
 		analytics.TopTenProducts = append(analytics.TopTenProducts, models.ProductCount{
-			ProductInfo: ranks[i].Product.ProductInfo,
-			Stock:       ranks[i].Product.Stock,
+			ProductInfo: models.ProductData{
+				ID:          item.ProductID,
+				Name:        item.Name,
+				Category:    item.Category,
+				StorageArea: item.StorageArea,
+				Supplier: models.Supplier{
+					ID:   item.SupplierID,
+					Name: item.Supplier,
+				},
+			},
+			Stock: models.Stock{
+				OnBoardCount:  item.OnBoard,
+				OffBoardCount: item.OffBoard,
+				InStockCount:  item.OnBoard - item.OffBoard,
+			},
 		})
 	}
-
-	log.Printf("📈 Analytics generated for Warehouse %d (duration=%s) — products=%d top=%d",
-		warehouseID, duration, len(analytics.ProductsData), len(analytics.TopTenProducts))
 
 	return &analytics, nil
 }
