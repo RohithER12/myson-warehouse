@@ -6,6 +6,7 @@ import (
 	"strings"
 	"warehouse/helper"
 
+	"github.com/andybalholm/brotli"
 	"github.com/gin-gonic/gin"
 )
 
@@ -51,33 +52,83 @@ func RequireRoles(allowed ...string) gin.HandlerFunc {
 	}
 }
 
-type gzipWriter struct {
-	gin.ResponseWriter
-	gw *gzip.Writer
+// Minimum size to compress (1KB)
+const minSize = 1024
+
+// Files to skip
+var skipExtensions = []string{
+	".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
+	".zip", ".gz", ".rar", ".iso", ".mp4", ".mp3",
+	".pdf", ".woff", ".woff2",
 }
 
-func (g *gzipWriter) Write(data []byte) (int, error) {
-	return g.gw.Write(data)
-}
-
-func GzipMiddleware() gin.HandlerFunc {
+func CompressionMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 
-		// Only gzip if client supports it
-		if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
-			c.Next()
-			return
+		// If client accepts Brotli
+		accept := c.GetHeader("Accept-Encoding")
+		useBrotli := strings.Contains(accept, "br")
+		useGzip := strings.Contains(accept, "gzip")
+
+		// Replace writer
+		writer := &compressedWriter{
+			ResponseWriter: c.Writer,
+			useBrotli:      useBrotli,
+			useGzip:        !useBrotli && useGzip,
 		}
-
-		// Set response headers
-		c.Header("Content-Encoding", "gzip")
-		c.Header("Vary", "Accept-Encoding")
-
-		gz := gzip.NewWriter(c.Writer)
-		defer gz.Close()
-
-		c.Writer = &gzipWriter{ResponseWriter: c.Writer, gw: gz}
+		c.Writer = writer
 
 		c.Next()
+
+		// Finish compression
+		writer.Close()
+	}
+}
+
+type compressedWriter struct {
+	gin.ResponseWriter
+	brWriter  *brotli.Writer
+	gzWriter  *gzip.Writer
+	useBrotli bool
+	useGzip   bool
+}
+
+func (w *compressedWriter) Write(data []byte) (int, error) {
+
+	// Skip small responses
+	if len(data) < minSize {
+		return w.ResponseWriter.Write(data)
+	}
+
+	// Choose Brotli
+	if w.useBrotli {
+		if w.brWriter == nil {
+			w.Header().Set("Content-Encoding", "br")
+			w.Header().Del("Content-Length")
+			w.brWriter = brotli.NewWriter(w.ResponseWriter)
+		}
+		return w.brWriter.Write(data)
+	}
+
+	// Choose Gzip
+	if w.useGzip {
+		if w.gzWriter == nil {
+			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Del("Content-Length")
+			w.gzWriter = gzip.NewWriter(w.ResponseWriter)
+		}
+		return w.gzWriter.Write(data)
+	}
+
+	// No compression
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *compressedWriter) Close() {
+	if w.brWriter != nil {
+		w.brWriter.Close()
+	}
+	if w.gzWriter != nil {
+		w.gzWriter.Close()
 	}
 }

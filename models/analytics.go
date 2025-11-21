@@ -3,7 +3,7 @@ package models
 type ProductAnalytics struct {
 	TotalAmounts   TotalAmounts      `json:"total_amounts"`
 	GodownData     GodownData        `json:"godown_data"`
-	ProductsData   []ProductWiseData `json:"products_data"`
+	// ProductsData   []ProductWiseData `json:"products_data"`
 	TopTenProducts []ProductCount    `json:"top_ten_products"`
 }
 

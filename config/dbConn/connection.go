@@ -18,16 +18,22 @@ var DB *gorm.DB
 func ConnectDB() *gorm.DB {
 	config.LoadConfig()
 	dbName := config.Cfg.DbName
+	dbHost := config.Cfg.DbHost
+	dbUser := config.Cfg.DbUser
+	dbPassword := config.Cfg.DbPassword
+	dbPort := config.Cfg.DbPort
+	dbSSLmode := config.Cfg.DbSSLmode
+	dbTimeZone := config.Cfg.DbTimeZone
 
 	// Step 1️⃣: Connect to default postgres DB
 	defaultDSN := fmt.Sprintf(
 		"host=%s user=%s password=%s dbname=postgres port=%s sslmode=%s TimeZone=%s",
-		config.Cfg.DbHost,
-		config.Cfg.DbUser,
-		config.Cfg.DbPassword,
-		config.Cfg.DbPort,
-		config.Cfg.DbSSLmode,
-		config.Cfg.DbTimeZone,
+		dbHost,
+		dbUser,
+		dbPassword,
+		dbPort,
+		dbSSLmode,
+		dbTimeZone,
 	)
 
 	defaultDB, err := gorm.Open(postgres.Open(defaultDSN), &gorm.Config{})
@@ -56,13 +62,13 @@ func ConnectDB() *gorm.DB {
 	// Step 4️⃣: Connect to actual target DB
 	targetDSN := fmt.Sprintf(
 		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=%s",
-		config.Cfg.DbHost,
-		config.Cfg.DbUser,
-		config.Cfg.DbPassword,
+		dbHost,
+		dbUser,
+		dbPassword,
 		dbName,
-		config.Cfg.DbPort,
-		config.Cfg.DbSSLmode,
-		config.Cfg.DbTimeZone,
+		dbPort,
+		dbSSLmode,
+		dbTimeZone,
 	)
 
 	// ✅ Add NamingStrategy to prefix all tables with `mys_`
@@ -98,6 +104,50 @@ func ConnectDB() *gorm.DB {
 
 	log.Println("✅ Auto migration completed successfully with prefix 'mys_'")
 
+	// Step 6️⃣: Create index optimizations
+	if err := CreateRequiredIndexes(db); err != nil {
+		log.Fatalf("❌ Failed creating indexes: %v", err)
+	}
+
 	DB = db
 	return DB
+}
+
+// CreateRequiredIndexes ensures all performance-related indexes exist.
+func CreateRequiredIndexes(db *gorm.DB) error {
+	indexQueries := []string{
+		// 📦 Batch
+		`CREATE INDEX IF NOT EXISTS idx_batch_warehouse ON mys_batch (warehouse_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_batch_created_at ON mys_batch (created_at);`,
+
+		// 📦 BatchProductEntry
+		`CREATE INDEX IF NOT EXISTS idx_bpe_batch ON mys_batch_product_entry (batch_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_bpe_product ON mys_batch_product_entry (product_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_bpe_created_at ON mys_batch_product_entry (created_at);`,
+
+		// 🧾 BillingItem
+		`CREATE INDEX IF NOT EXISTS idx_bi_batch ON mys_billing_item (batch_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_bi_product ON mys_billing_item (product_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_bi_created_at ON mys_billing_item (created_at);`,
+
+		// 💰 Profit
+		`CREATE INDEX IF NOT EXISTS idx_profit_batch ON mys_profit (batch_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_profit_product ON mys_profit (product_id);`,
+
+		// 📦 Warehouse
+		`CREATE INDEX IF NOT EXISTS idx_warehouse_rentconfig ON mys_warehouse (rent_config_id);`,
+
+		// 🛒 Product
+		`CREATE INDEX IF NOT EXISTS idx_product_supplier ON mys_product (supplier_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_product_category ON mys_product (category);`,
+	}
+
+	for _, q := range indexQueries {
+		if err := db.Exec(q).Error; err != nil {
+			return fmt.Errorf("failed to create index: %v\nQuery: %s", err, q)
+		}
+	}
+
+	log.Println("✅ Required indexes created successfully")
+	return nil
 }
